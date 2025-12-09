@@ -1,5 +1,5 @@
 /**
- * n0body v3.1 — unlimited sessions, organic transitions, musical balance
+ * n0body v3.2 — fully learnable, unlimited sessions
  * the first non-human performer of Playground
  *
  * Usage:
@@ -8,16 +8,24 @@
  *   3. Paste this entire file
  *   4. Run: n0body.start()
  *   5. To stop: n0body.stop() (graceful outro)
- *   6. To check status: n0body.status()
- *   7. To reset learning: n0body.reset()
+ *
+ * All musical parameters are learnable:
+ *   - BPM preferences per mood
+ *   - Scale preferences (weighted)
+ *   - State durations
+ *   - Synth waveforms
+ *   - FX per state
+ *   - Energy patterns
+ *   - State transitions
+ *
+ * Knowledge persists in localStorage
  */
 
 (function() {
     'use strict';
 
     // ========== MEMORY (localStorage persistence) ==========
-
-    var STORAGE_KEY = 'n0body_knowledge';
+    const STORAGE_KEY = 'n0body_knowledge';
 
     function saveKnowledge(knowledge) {
         try {
@@ -34,6 +42,8 @@
             var data = localStorage.getItem(STORAGE_KEY);
             if (data) {
                 var knowledge = JSON.parse(data);
+                // Migrate old knowledge structure
+                knowledge = migrateKnowledge(knowledge);
                 console.log('n0body: knowledge loaded (' + knowledge.sessionsPlayed + ' sessions)');
                 return knowledge;
             }
@@ -53,16 +63,53 @@
         }
     }
 
-    // ========== LEARNING SYSTEM ==========
+    // Migrate old knowledge to new structure
+    function migrateKnowledge(old) {
+        var fresh = initKnowledge();
+        // Preserve basic stats
+        fresh.sessionsPlayed = old.sessionsPlayed || 0;
+        fresh.totalPlayTime = old.totalPlayTime || 0;
+        // Preserve compatible structures
+        if (old.transitionSuccess) fresh.transitions = old.transitionSuccess;
+        if (old.combos) fresh.combos = old.combos;
+        if (old.notes) fresh.notes = old.notes;
+        if (old.drums) fresh.drums = old.drums;
+        // Migrate FX if exists with new structure
+        if (old.fx && old.fx.intro && old.fx.intro.reverb && typeof old.fx.intro.reverb === 'object') {
+            fresh.fx = old.fx;
+        }
+        // Migrate BPM preferences
+        if (old.bpmPreference) {
+            for (var mood in old.bpmPreference) {
+                if (fresh.bpm[mood]) {
+                    fresh.bpm[mood].preferred = old.bpmPreference[mood].preferred || fresh.bpm[mood].preferred;
+                    fresh.bpm[mood].variance = old.bpmPreference[mood].variance || fresh.bpm[mood].variance;
+                }
+            }
+        }
+        // Migrate scale success
+        if (old.scaleSuccess) {
+            for (var scale in old.scaleSuccess) {
+                if (fresh.scales[scale]) {
+                    fresh.scales[scale].weight = old.scaleSuccess[scale].avgScore || 1.0;
+                }
+            }
+        }
+        return fresh;
+    }
 
+    // ========== LEARNING SYSTEM (FULLY LEARNABLE) ==========
     function initKnowledge() {
         var states = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+
+        // Drums per state (pad weights)
         var drums = {};
         states.forEach(function(state) {
             drums[state] = {};
             for (var i = 1; i <= 8; i++) { drums[state][i] = 1.0; }
         });
 
+        // FX preferences per state
         var fx = {
             intro: { reverb: { preferred: 0.4, variance: 0.15 }, delay: { preferred: 0.1, variance: 0.1 }, filter: { preferred: 0.5, variance: 0.15 }, distortion: { preferred: 0.05, variance: 0.05 }, chorus: { preferred: 0.1, variance: 0.1 }, crush: { preferred: 0, variance: 0 } },
             buildup: { reverb: { preferred: 0.5, variance: 0.15 }, delay: { preferred: 0.3, variance: 0.1 }, filter: { preferred: 0.6, variance: 0.15 }, distortion: { preferred: 0.1, variance: 0.1 }, chorus: { preferred: 0.2, variance: 0.1 }, crush: { preferred: 0, variance: 0 } },
@@ -71,20 +118,83 @@
             outro: { reverb: { preferred: 0.7, variance: 0.1 }, delay: { preferred: 0.05, variance: 0.05 }, filter: { preferred: 0.3, variance: 0.1 }, distortion: { preferred: 0, variance: 0 }, chorus: { preferred: 0.1, variance: 0.05 }, crush: { preferred: 0, variance: 0 } },
         };
 
+        // State durations (learnable)
+        var stateDurations = {
+            intro: { preferred: 55, variance: 35, min: 20, max: 90 },
+            buildup: { preferred: 112, variance: 68, min: 45, max: 180 },
+            peak: { preferred: 270, variance: 210, min: 60, max: 480 },
+            breakdown: { preferred: 90, variance: 60, min: 30, max: 150 },
+            outro: { preferred: 45, variance: 15, min: 30, max: 60 },
+        };
+
+        // Synth preferences (waveforms, attack, release)
+        var synth = {
+            waveforms: { sine: 1.0, square: 1.0, saw: 1.0, triangle: 1.0, pulse: 1.0 },
+            attack: { preferred: 0.1, variance: 0.1 },
+            release: { preferred: 0.3, variance: 0.2 },
+        };
+
+        // Energy per state (current session tracking)
+        var energy = {
+            intro: { target: 0.2, variance: 0.1 },
+            buildup: { target: 0.5, variance: 0.15 },
+            peak: { target: 0.9, variance: 0.1 },
+            breakdown: { target: 0.35, variance: 0.15 },
+            outro: { target: 0.1, variance: 0.05 },
+        };
+
         return {
+            // Meta
             sessionsPlayed: 0,
             totalPlayTime: 0,
-            drums: drums,
-            notes: {},
-            combos: {},
-            fx: fx,
-            scaleSuccess: {},
-            transitionSuccess: {},
-            bpmPreference: {
-                dark: { preferred: 82, variance: 10 },
-                bright: { preferred: 110, variance: 15 },
-                neutral: { preferred: 95, variance: 12 },
+            version: '3.2',
+
+            // BPM (learnable per mood)
+            bpm: {
+                dark: { preferred: 82, variance: 10, history: [] },
+                bright: { preferred: 110, variance: 15, history: [] },
+                neutral: { preferred: 95, variance: 12, history: [] },
             },
+
+            // Scales (weighted preference)
+            scales: {
+                cMinor: { weight: 1.0, sessions: 0 },
+                aMinor: { weight: 1.0, sessions: 0 },
+                dMinor: { weight: 1.0, sessions: 0 },
+                cMajor: { weight: 1.0, sessions: 0 },
+                gMajor: { weight: 1.0, sessions: 0 },
+                cMinorPentatonic: { weight: 1.0, sessions: 0 },
+                aMinorPentatonic: { weight: 1.0, sessions: 0 },
+                dDorian: { weight: 1.0, sessions: 0 },
+                aPhrygian: { weight: 1.0, sessions: 0 },
+            },
+
+            // State durations (learnable)
+            stateDurations: stateDurations,
+
+            // Drums (pad weights per state)
+            drums: drums,
+
+            // Note preferences per scale+state
+            notes: {},
+
+            // FX (per state with preferred/variance)
+            fx: fx,
+
+            // Synth preferences
+            synth: synth,
+
+            // State transitions (learnable)
+            transitions: {},
+
+            // Energy per state
+            energy: energy,
+
+            // Action combos that worked well
+            combos: {},
+
+            // Session history for trend analysis
+            sessionHistory: [],
         };
     }
 
@@ -158,7 +268,6 @@
     }
 
     // ========== SHORT TERM MEMORY ==========
-
     function ShortTermMemory(maxSize) {
         this.actions = [];
         this.maxSize = maxSize || 30;
@@ -171,7 +280,6 @@
     ShortTermMemory.prototype.clear = function() { this.actions = []; };
 
     // ========== SCALES ==========
-
     var SCALES = {
         cMinor: ['C3', 'D3', 'Eb3', 'F3', 'G3', 'Ab3', 'Bb3', 'C4', 'D4', 'Eb4', 'F4', 'G4'],
         aMinor: ['A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4'],
@@ -190,8 +298,7 @@
         neutral: ['cMinorPentatonic', 'aMinorPentatonic', 'dDorian'],
     };
 
-    // ========== CONFIG v3.1 ==========
-
+    // ========== CONFIG v3.2 ==========
     var CONFIG = {
         session: { transitionCheckInterval: 10 },
         tempo: { bpm: { min: 70, max: 130 } },
@@ -254,7 +361,6 @@
     };
 
     // ========== LOOPER CONFIG ==========
-
     var LOOPER_CONFIG = {
         intro: { useLooper: false },
         buildup: {
@@ -286,7 +392,6 @@
     };
 
     // ========== UTILS ==========
-
     function randomBetween(min, max) { return Math.random() * (max - min) + min; }
     function randomIntBetween(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
     function randomFrom(array) { return array[Math.floor(Math.random() * array.length)]; }
@@ -301,8 +406,7 @@
         return minutes + ':' + String(seconds).padStart(2, '0');
     }
 
-    // ========== N0BODY v3.1 CLASS ==========
-
+    // ========== N0BODY v3.2 CLASS ==========
     function N0body() {
         this.config = CONFIG;
         this.scales = SCALES;
@@ -346,8 +450,6 @@
         this.knowledge = loadKnowledge() || initKnowledge();
         this.shortTermMemory = new ShortTermMemory(30);
         this.explorationRate = 0.15;
-
-        console.log('n0body v3.1: loaded with ' + this.knowledge.sessionsPlayed + ' sessions (' + getLevel(this.knowledge.sessionsPlayed) + ')');
     }
 
     N0body.prototype.start = function() {
@@ -355,8 +457,8 @@
         if (typeof MK1 === 'undefined') { console.error('n0body: MK1 not found'); return; }
 
         console.log('');
-        console.log('n0body v3.1 is going live...');
-        console.log('unlimited session - stop when ready');
+        console.log('n0body v3.2 is going live...');
+        console.log('fully learnable - unlimited session');
         console.log('');
 
         this.isPlaying = true;
@@ -442,16 +544,48 @@
         this.looperRecordingSlot = null;
         this.looperActiveSlots = [];
 
-        // Update knowledge - INCREMENT sessionsPlayed HERE
+        // Track final state time
+        var timeInState = (Date.now() - this.stateStartTime) / 1000;
+        if (this.stateTimeSpent) {
+            this.stateTimeSpent[this.currentState] = (this.stateTimeSpent[this.currentState] || 0) + timeInState;
+        }
+
+        // Calculate session reward
+        var sessionReward = this._calculateSessionReward();
+        console.log('n0body: session reward = ' + sessionReward.toFixed(2));
+
+        // LEARN FROM SESSION
+        this._learnBPM(sessionReward);
+        this._learnScale(sessionReward);
+        this._learnSynth(sessionReward);
+        this._learnEnergy(sessionReward);
+
+        // Learn state durations
+        var self = this;
+        ['intro', 'buildup', 'peak', 'breakdown', 'outro'].forEach(function(state) {
+            if (self.stateTimeSpent && self.stateTimeSpent[state] > 0) {
+                self._learnStateDuration(state, self.stateTimeSpent[state], sessionReward);
+            }
+        });
+
+        // Update meta stats
         var elapsed = Date.now() - this.sessionStart;
         this.knowledge.totalPlayTime += elapsed / 1000 / 60;
         this.knowledge.sessionsPlayed++;
 
-        if (this.currentScaleName) {
-            if (!this.knowledge.scaleSuccess[this.currentScaleName]) {
-                this.knowledge.scaleSuccess[this.currentScaleName] = { sessions: 0, avgScore: 1.0 };
-            }
-            this.knowledge.scaleSuccess[this.currentScaleName].sessions++;
+        // Add to session history (keep last 50)
+        if (!this.knowledge.sessionHistory) this.knowledge.sessionHistory = [];
+        this.knowledge.sessionHistory.push({
+            date: new Date().toISOString(),
+            duration: elapsed / 1000 / 60,
+            reward: sessionReward,
+            mood: this.currentMood,
+            scale: this.currentScaleName,
+            bpm: this.currentBPM,
+            transitions: this.stats.stateTransitions,
+        });
+        if (this.knowledge.sessionHistory.length > 50) {
+            this.knowledge.sessionHistory.shift();
         }
 
         // Save and verify
@@ -468,7 +602,6 @@
     };
 
     // ========== ORGANIC TRANSITIONS ==========
-
     N0body.prototype._checkStateTransition = function() {
         if (this.isEnding) return;
 
@@ -496,6 +629,12 @@
         var transitionKey = this.currentState + '_to_' + newState;
         var reward = this._evaluateStateReward();
         this._learnTransition(transitionKey, reward);
+
+        // Track time spent in previous state
+        var timeInState = (Date.now() - this.stateStartTime) / 1000;
+        if (this.stateTimeSpent) {
+            this.stateTimeSpent[this.currentState] = (this.stateTimeSpent[this.currentState] || 0) + timeInState;
+        }
 
         this.currentState = newState;
         this.stateStartTime = Date.now();
@@ -553,7 +692,6 @@
     };
 
     // ========== LEARNING ==========
-
     N0body.prototype._learn = function(action) {
         var contextualAction = { type: action.type, pad: action.pad, note: action.note, param: action.param, value: action.value, context: { state: this.currentState, bpm: this.currentBPM, scale: this.currentScaleName, mood: this.currentMood } };
         this.shortTermMemory.add(contextualAction);
@@ -607,7 +745,6 @@
     };
 
     // ========== DECISION MAKING ==========
-
     N0body.prototype._chooseDrumPad = function() {
         var state = this.currentState;
         var stateConf = this.stateConfig[state];
@@ -653,24 +790,50 @@
     };
 
     N0body.prototype._chooseBPM = function() {
-        var bpmPref = this.knowledge.bpmPreference && this.knowledge.bpmPreference[this.currentMood];
+        var bpmPref = this.knowledge.bpm && this.knowledge.bpm[this.currentMood];
         if (!bpmPref) return Math.round(randomBetween(this.config.tempo.bpm.min, this.config.tempo.bpm.max));
-        var bpm = bpmPref.preferred + (Math.random() - 0.5) * bpmPref.variance * 2;
+
+        // Exploration vs exploitation
+        if (Math.random() < this.explorationRate) {
+            // Explore: random BPM in valid range
+            return Math.round(randomBetween(this.config.tempo.bpm.min, this.config.tempo.bpm.max));
+        }
+
+        // Exploit: use learned preference with variance
+        // Variance decreases with experience (more confident style)
+        var experienceFactor = Math.max(0.5, 1 - (this.knowledge.sessionsPlayed / 100));
+        var effectiveVariance = bpmPref.variance * experienceFactor;
+        var bpm = bpmPref.preferred + (Math.random() - 0.5) * effectiveVariance * 2;
         return Math.round(clamp(bpm, this.config.tempo.bpm.min, this.config.tempo.bpm.max));
     };
 
-    // ========== INIT ==========
+    N0body.prototype._learnBPM = function(sessionReward) {
+        var mood = this.currentMood;
+        if (!mood || !this.knowledge.bpm[mood]) return;
 
+        var bpmPref = this.knowledge.bpm[mood];
+        var lr = getLearningRate(this.knowledge.sessionsPlayed);
+
+        // Add to history (keep last 20)
+        bpmPref.history = bpmPref.history || [];
+        bpmPref.history.push({ bpm: this.currentBPM, reward: sessionReward });
+        if (bpmPref.history.length > 20) bpmPref.history.shift();
+
+        // If session was good, move preferred toward this BPM
+        if (sessionReward > 0.5) {
+            bpmPref.preferred = bpmPref.preferred + (this.currentBPM - bpmPref.preferred) * lr * sessionReward;
+            // Reduce variance when we find what works (more confident)
+            bpmPref.variance = Math.max(5, bpmPref.variance * (1 - lr * 0.1));
+        } else if (sessionReward < -0.5) {
+            // Bad session: increase variance to explore more
+            bpmPref.variance = Math.min(20, bpmPref.variance * (1 + lr * 0.1));
+        }
+    };
+
+    // ========== INIT ==========
     N0body.prototype._initSession = function() {
         this.currentMood = randomFrom(['dark', 'neutral', 'bright']);
-        var scaleNames = this.scaleMoods[this.currentMood];
-        var scaleWeights = {};
-        var self = this;
-        scaleNames.forEach(function(name) {
-            var success = self.knowledge.scaleSuccess && self.knowledge.scaleSuccess[name];
-            scaleWeights[name] = success ? success.avgScore : 1.0;
-        });
-        this.currentScaleName = weightedChoice(scaleWeights);
+        this.currentScaleName = this._chooseScale();
         this.currentScale = this.scales[this.currentScaleName];
         console.log('n0body: mood=' + this.currentMood + ' scale=' + this.currentScaleName);
 
@@ -678,8 +841,12 @@
         MK1.tempo.setBPM(this.currentBPM);
         console.log('n0body: BPM=' + this.currentBPM);
 
-        this.currentWaveform = randomFrom(this.config.waveforms);
+        this.currentWaveform = this._chooseWaveform();
         MK1.synth.setWaveform(this.currentWaveform);
+
+        // Initialize session energy tracking
+        this.sessionEnergy = { intro: 0, buildup: 0, peak: 0, breakdown: 0, outro: 0 };
+        this.stateTimeSpent = { intro: 0, buildup: 0, peak: 0, breakdown: 0, outro: 0 };
 
         this._applyAllFx();
         MK1.master.setVolume(0.7);
@@ -689,8 +856,174 @@
         this.stateStartTime = Date.now();
     };
 
-    // ========== LOOPS ==========
+    N0body.prototype._chooseScale = function() {
+        var scaleNames = this.scaleMoods[this.currentMood];
+        var self = this;
 
+        // Exploration vs exploitation
+        if (Math.random() < this.explorationRate) {
+            return randomFrom(scaleNames);
+        }
+
+        // Build weights from learned preferences
+        var scaleWeights = {};
+        scaleNames.forEach(function(name) {
+            var scalePref = self.knowledge.scales && self.knowledge.scales[name];
+            scaleWeights[name] = scalePref ? scalePref.weight : 1.0;
+        });
+
+        return weightedChoice(scaleWeights);
+    };
+
+    N0body.prototype._learnScale = function(sessionReward) {
+        if (!this.currentScaleName || !this.knowledge.scales[this.currentScaleName]) return;
+
+        var scalePref = this.knowledge.scales[this.currentScaleName];
+        var lr = getLearningRate(this.knowledge.sessionsPlayed);
+
+        scalePref.sessions++;
+
+        // Adjust weight based on session reward
+        if (sessionReward > 0) {
+            scalePref.weight = Math.min(3.0, scalePref.weight + lr * sessionReward);
+        } else {
+            scalePref.weight = Math.max(0.3, scalePref.weight + lr * sessionReward);
+        }
+    };
+
+    // ========== SYNTH LEARNING ==========
+    N0body.prototype._chooseWaveform = function() {
+        var waveformPref = this.knowledge.synth && this.knowledge.synth.waveforms;
+        if (!waveformPref) return randomFrom(this.config.waveforms);
+
+        // Exploration vs exploitation
+        if (Math.random() < this.explorationRate) {
+            return randomFrom(this.config.waveforms);
+        }
+
+        return weightedChoice(waveformPref);
+    };
+
+    N0body.prototype._learnSynth = function(sessionReward) {
+        if (!this.currentWaveform || !this.knowledge.synth) return;
+
+        var lr = getLearningRate(this.knowledge.sessionsPlayed);
+
+        // Learn waveform preference
+        if (this.knowledge.synth.waveforms[this.currentWaveform] !== undefined) {
+            if (sessionReward > 0) {
+                this.knowledge.synth.waveforms[this.currentWaveform] = Math.min(3.0,
+                    this.knowledge.synth.waveforms[this.currentWaveform] + lr * sessionReward);
+            } else {
+                this.knowledge.synth.waveforms[this.currentWaveform] = Math.max(0.3,
+                    this.knowledge.synth.waveforms[this.currentWaveform] + lr * sessionReward);
+            }
+        }
+    };
+
+    // ========== STATE DURATION LEARNING ==========
+    N0body.prototype._getStateDuration = function(state) {
+        var durPref = this.knowledge.stateDurations && this.knowledge.stateDurations[state];
+        if (!durPref) {
+            var fallback = this.stateTransitions[state];
+            return randomBetween(fallback.minDuration, fallback.maxDuration);
+        }
+
+        // Exploration vs exploitation
+        if (Math.random() < this.explorationRate) {
+            return randomBetween(durPref.min, durPref.max);
+        }
+
+        // Use learned preference with variance (decreases with experience)
+        var experienceFactor = Math.max(0.5, 1 - (this.knowledge.sessionsPlayed / 100));
+        var effectiveVariance = durPref.variance * experienceFactor;
+        var duration = durPref.preferred + (Math.random() - 0.5) * effectiveVariance * 2;
+        return clamp(duration, durPref.min, durPref.max);
+    };
+
+    N0body.prototype._learnStateDuration = function(state, actualDuration, reward) {
+        if (!state || !this.knowledge.stateDurations || !this.knowledge.stateDurations[state]) return;
+
+        var durPref = this.knowledge.stateDurations[state];
+        var lr = getLearningRate(this.knowledge.sessionsPlayed);
+
+        // If good reward, move preferred toward actual duration
+        if (reward > 0.5) {
+            durPref.preferred = durPref.preferred + (actualDuration - durPref.preferred) * lr * reward;
+            // Reduce variance (more confident)
+            durPref.variance = Math.max(10, durPref.variance * (1 - lr * 0.1));
+        } else if (reward < -0.5) {
+            // Bad: increase variance to explore more
+            durPref.variance = Math.min(durPref.max - durPref.min, durPref.variance * (1 + lr * 0.1));
+        }
+    };
+
+    // ========== ENERGY TRACKING ==========
+    N0body.prototype._trackEnergy = function(actionType) {
+        if (!this.sessionEnergy) return;
+
+        var energyDelta = 0;
+        switch (actionType) {
+            case 'drum': energyDelta = 0.3; break;
+            case 'synth': energyDelta = 0.15; break;
+            case 'sequencer': energyDelta = 0.1; break;
+            case 'fx': energyDelta = 0.05; break;
+            case 'rest': energyDelta = -0.1; break;
+        }
+
+        var state = this.currentState;
+        this.sessionEnergy[state] = clamp((this.sessionEnergy[state] || 0) + energyDelta, 0, 1);
+    };
+
+    N0body.prototype._learnEnergy = function(sessionReward) {
+        if (!this.sessionEnergy || !this.stateTimeSpent) return;
+
+        var lr = getLearningRate(this.knowledge.sessionsPlayed);
+        var self = this;
+
+        ['intro', 'buildup', 'peak', 'breakdown', 'outro'].forEach(function(state) {
+            if (self.stateTimeSpent[state] > 10 && sessionReward > 0.5) {
+                var avgEnergy = self.sessionEnergy[state] / Math.max(1, self.stateTimeSpent[state] / 60);
+                var energyPref = self.knowledge.energy[state];
+                if (energyPref) {
+                    energyPref.target = energyPref.target + (avgEnergy - energyPref.target) * lr * sessionReward;
+                }
+            }
+        });
+    };
+
+    // ========== SESSION REWARD CALCULATION ==========
+    N0body.prototype._calculateSessionReward = function() {
+        var elapsed = (Date.now() - this.sessionStart) / 1000 / 60; // minutes
+        var reward = 0;
+
+        // Session length reward (longer = better, up to a point)
+        if (elapsed >= 5) reward += 0.3;
+        if (elapsed >= 15) reward += 0.3;
+        if (elapsed >= 30) reward += 0.2;
+        if (elapsed >= 60) reward += 0.2;
+
+        // Variety reward (used multiple states)
+        var statesVisited = 0;
+        var self = this;
+        ['intro', 'buildup', 'peak', 'breakdown'].forEach(function(state) {
+            if (self.stateTimeSpent && self.stateTimeSpent[state] > 10) statesVisited++;
+        });
+        if (statesVisited >= 3) reward += 0.3;
+        if (statesVisited >= 4) reward += 0.2;
+
+        // Transitions reward
+        if (this.stats.stateTransitions >= 3) reward += 0.2;
+        if (this.stats.stateTransitions >= 6) reward += 0.2;
+
+        // Penalize very short sessions (user stopped early = bad)
+        if (elapsed < 2) reward -= 0.5;
+        if (elapsed < 1) reward -= 0.5;
+
+        return clamp(reward, -1, 2);
+    };
+
+    // ========== LOOPS ==========
     N0body.prototype._startLoops = function() {
         var self = this;
         this.mainLoop = setInterval(function() { self._tick(); }, 100);
@@ -706,6 +1039,7 @@
         var restChance = this.restProbability[this.currentState] || 0.6;
         if (Math.random() < restChance) {
             // Only check looper during rest, no other actions
+            this._trackEnergy('rest');
             this._maybeUseLooper();
             return;
         }
@@ -729,6 +1063,7 @@
             MK1.drums.hit(pad);
             this.stats.drumsPlayed++;
             this._learn({ type: 'drum', pad: pad });
+            this._trackEnergy('drum');
         }
     };
 
@@ -742,6 +1077,7 @@
             MK1.synth.play(note, duration);
             this.stats.synthNotesPlayed++;
             this._learn({ type: 'synth', note: note });
+            this._trackEnergy('synth');
         }
         var spacing = randomBetween(stateConf.synth.noteSpacing.min, stateConf.synth.noteSpacing.max);
         var humanized = spacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
@@ -757,10 +1093,10 @@
         MK1.sequencer.setStep(track, step, shouldActivate);
         this.stats.sequencerChanges++;
         this._learn({ type: 'sequencer' });
+        this._trackEnergy('sequencer');
     };
 
     // ========== LOOPER ==========
-
     N0body.prototype._maybeUseLooper = function() {
         if (!MK1.looper) return;
 
@@ -844,7 +1180,6 @@
     };
 
     // ========== FX (all 6) ==========
-
     N0body.prototype._applyAllFx = function() {
         MK1.fx.setReverb(this._chooseFxValue('reverb'));
         MK1.fx.setDelay(this._chooseFxValue('delay'));
@@ -901,7 +1236,6 @@
     };
 
     // ========== STATUS ==========
-
     N0body.prototype.getStatus = function() {
         var elapsed = this.sessionStart ? Date.now() - this.sessionStart : 0;
         var timeInState = this.stateStartTime ? Date.now() - this.stateStartTime : 0;
@@ -921,23 +1255,6 @@
         };
     };
 
-    N0body.prototype.status = function() {
-        var s = this.getStatus();
-        console.log('');
-        console.log('n0body v3.1 status:');
-        console.log('  playing: ' + s.isPlaying + (s.isEnding ? ' (ending)' : ''));
-        console.log('  state: ' + s.currentState + ' (' + s.timeInState + 's)');
-        console.log('  elapsed: ' + s.elapsedFormatted);
-        console.log('  mood: ' + s.mood);
-        console.log('  scale: ' + s.scale);
-        console.log('  bpm: ' + s.bpm);
-        console.log('  transitions: ' + s.stats.stateTransitions);
-        console.log('  loops: ' + s.stats.loopsRecorded);
-        console.log('  experience: ' + s.experience.sessions + ' sessions, ' + s.experience.totalMinutes + ' min (' + s.experience.level + ')');
-        console.log('');
-        return s;
-    };
-
     N0body.prototype.reset = function() {
         resetKnowledge();
         this.knowledge = initKnowledge();
@@ -947,24 +1264,8 @@
 
     N0body.prototype.getKnowledge = function() { return this.knowledge; };
 
-    // ========== INITIALIZATION ==========
-
-    if (typeof MK1 === 'undefined') {
-        console.error('');
-        console.error('n0body: MK1 API not found');
-        console.error('Make sure you are on mk-1.html');
-        console.error('');
-    } else {
+    if (typeof MK1 !== 'undefined') {
         window.n0body = new N0body();
-
-        console.log('');
-        console.log('n0body v3.1 — less chaos, more groove');
-        console.log('');
-        console.log('  n0body.start()   — begin session');
-        console.log('  n0body.stop()    — graceful outro');
-        console.log('  n0body.status()  — current state');
-        console.log('  n0body.reset()   — forget everything');
-        console.log('');
+        console.log('n0body v3.2: loaded (' + window.n0body.knowledge.sessionsPlayed + ' sessions, ' + Math.round(window.n0body.knowledge.totalPlayTime) + ' min)');
     }
-
 })();
