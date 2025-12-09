@@ -1,5 +1,5 @@
 /**
- * n0body v3.0 — unlimited sessions, organic transitions
+ * n0body v3.1 — unlimited sessions, organic transitions, musical balance
  * the first non-human performer of Playground
  *
  * Usage:
@@ -190,54 +190,64 @@
         neutral: ['cMinorPentatonic', 'aMinorPentatonic', 'dDorian'],
     };
 
-    // ========== CONFIG v3 ==========
+    // ========== CONFIG v3.1 ==========
 
     var CONFIG = {
         session: { transitionCheckInterval: 10 },
         tempo: { bpm: { min: 70, max: 130 } },
-        waveforms: ['sine', 'square', 'saw', 'triangle', 'pulse', 'noise'],
-        waveformChangeChance: 0.3,
+        waveforms: ['sine', 'square', 'saw', 'triangle', 'pulse'],
+        waveformChangeChance: 0.1,
         humanize: { timing: 50 },
         outro: { minDuration: 30, maxDuration: 60 },
+        fxChangeInterval: { min: 45000, max: 90000 },
     };
 
-    // State transitions (organic, probability-based)
+    // State transitions (organic, probability-based) - faster settling
     var STATE_TRANSITIONS = {
-        intro: { minDuration: 30, maxDuration: 180, transitions: { buildup: 0.7, intro: 0.3 } },
-        buildup: { minDuration: 60, maxDuration: 300, transitions: { peak: 0.5, buildup: 0.3, breakdown: 0.15, intro: 0.05 } },
-        peak: { minDuration: 60, maxDuration: 600, transitions: { peak: 0.5, breakdown: 0.35, buildup: 0.15 } },
-        breakdown: { minDuration: 45, maxDuration: 240, transitions: { buildup: 0.5, breakdown: 0.3, intro: 0.15, peak: 0.05 } },
+        intro: { minDuration: 20, maxDuration: 90, transitions: { buildup: 0.8, intro: 0.2 } },
+        buildup: { minDuration: 45, maxDuration: 180, transitions: { peak: 0.6, buildup: 0.25, breakdown: 0.1, intro: 0.05 } },
+        peak: { minDuration: 60, maxDuration: 480, transitions: { peak: 0.55, breakdown: 0.35, buildup: 0.1 } },
+        breakdown: { minDuration: 30, maxDuration: 150, transitions: { buildup: 0.55, breakdown: 0.25, intro: 0.15, peak: 0.05 } },
         outro: { minDuration: 30, maxDuration: 60, transitions: {} },
+    };
+
+    // REST probability - let the base breathe
+    var REST_PROBABILITY = {
+        intro: 0.85,
+        buildup: 0.7,
+        peak: 0.5,
+        breakdown: 0.75,
+        outro: 0.9,
     };
 
     var STATE_CONFIG = {
         intro: {
-            drums: { probability: 0.05, pads: [1, 2] },
-            synth: { probability: 0.15, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 2000, max: 5000 } },
+            drums: { probability: 0, pads: [1, 2] },
+            synth: { probability: 0.02, noteDuration: { min: 2, max: 5 }, noteSpacing: { min: 6000, max: 15000 } },
             sequencer: { active: false },
-            fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.1 }, chorus: { min: 0, max: 0.2 }, crush: { min: 0, max: 0 } },
+            fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0, max: 0.15 }, crush: { min: 0, max: 0 } },
         },
         buildup: {
-            drums: { probability: 0.2, pads: [1, 2, 3, 5] },
-            synth: { probability: 0.35, noteDuration: { min: 0.2, max: 1 }, noteSpacing: { min: 800, max: 2500 } },
-            sequencer: { active: true, density: 0.2, tracksActive: [1, 2] },
-            fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.2, max: 0.4 }, filter: { min: 0.5, max: 0.7 }, distortion: { min: 0, max: 0.15 }, chorus: { min: 0.1, max: 0.3 }, crush: { min: 0, max: 0 } },
+            drums: { probability: 0.005, pads: [1, 2] },
+            synth: { probability: 0.03, noteDuration: { min: 1, max: 3 }, noteSpacing: { min: 3000, max: 8000 } },
+            sequencer: { active: true, density: 0.15, tracksActive: [1, 2] },
+            fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.15, max: 0.35 }, filter: { min: 0.5, max: 0.7 }, distortion: { min: 0, max: 0.1 }, chorus: { min: 0.1, max: 0.25 }, crush: { min: 0, max: 0 } },
         },
         peak: {
-            drums: { probability: 0.4, pads: [1, 2, 3, 4, 5, 6, 7, 8] },
-            synth: { probability: 0.5, noteDuration: { min: 0.1, max: 0.8 }, noteSpacing: { min: 300, max: 1200 } },
-            sequencer: { active: true, density: 0.5, tracksActive: [1, 2, 3, 4, 5, 6] },
-            fx: { reverb: { min: 0.5, max: 0.8 }, delay: { min: 0.3, max: 0.6 }, filter: { min: 0.6, max: 0.9 }, distortion: { min: 0.1, max: 0.3 }, chorus: { min: 0.2, max: 0.4 }, crush: { min: 0, max: 0.2 } },
+            drums: { probability: 0.01, pads: [1, 2] },
+            synth: { probability: 0.05, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 2000, max: 5000 } },
+            sequencer: { active: true, density: 0.35, tracksActive: [1, 2, 3, 4] },
+            fx: { reverb: { min: 0.5, max: 0.75 }, delay: { min: 0.25, max: 0.5 }, filter: { min: 0.6, max: 0.85 }, distortion: { min: 0.05, max: 0.2 }, chorus: { min: 0.15, max: 0.35 }, crush: { min: 0, max: 0.1 } },
         },
         breakdown: {
-            drums: { probability: 0.15, pads: [1, 2, 5] },
-            synth: { probability: 0.25, noteDuration: { min: 0.3, max: 1.5 }, noteSpacing: { min: 1500, max: 4000 } },
-            sequencer: { active: true, density: 0.15, tracksActive: [1, 2] },
-            fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.1, max: 0.3 }, filter: { min: 0.3, max: 0.5 }, distortion: { min: 0, max: 0.1 }, chorus: { min: 0.1, max: 0.2 }, crush: { min: 0, max: 0 } },
+            drums: { probability: 0, pads: [1, 2] },
+            synth: { probability: 0.03, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 4000, max: 10000 } },
+            sequencer: { active: true, density: 0.1, tracksActive: [1, 2] },
+            fx: { reverb: { min: 0.45, max: 0.6 }, delay: { min: 0.1, max: 0.25 }, filter: { min: 0.35, max: 0.55 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0.1, max: 0.2 }, crush: { min: 0, max: 0 } },
         },
         outro: {
-            drums: { probability: 0.03, pads: [1] },
-            synth: { probability: 0.1, noteDuration: { min: 1, max: 3 }, noteSpacing: { min: 3000, max: 8000 } },
+            drums: { probability: 0, pads: [1] },
+            synth: { probability: 0.01, noteDuration: { min: 3, max: 6 }, noteSpacing: { min: 8000, max: 20000 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.6, max: 0.8 }, delay: { min: 0, max: 0.1 }, filter: { min: 0.2, max: 0.4 }, distortion: { min: 0, max: 0 }, chorus: { min: 0, max: 0.1 }, crush: { min: 0, max: 0 } },
         },
@@ -291,7 +301,7 @@
         return minutes + ':' + String(seconds).padStart(2, '0');
     }
 
-    // ========== N0BODY v3 CLASS ==========
+    // ========== N0BODY v3.1 CLASS ==========
 
     function N0body() {
         this.config = CONFIG;
@@ -299,6 +309,7 @@
         this.scaleMoods = SCALE_MOODS;
         this.stateConfig = STATE_CONFIG;
         this.stateTransitions = STATE_TRANSITIONS;
+        this.restProbability = REST_PROBABILITY;
         this.looperConfig = LOOPER_CONFIG;
 
         this.isPlaying = false;
@@ -324,13 +335,19 @@
         this.looperRecordStartTime = null;
         this.looperActiveSlots = [];
 
+        // Melodic state
+        this.lastNote = null;
+
+        // Current FX values for incremental changes
+        this.currentFx = { reverb: 0.5, delay: 0.2, filter: 0.5, distortion: 0, chorus: 0.1, crush: 0 };
+
         this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0, stateTransitions: 0, loopsRecorded: 0 };
 
         this.knowledge = loadKnowledge() || initKnowledge();
         this.shortTermMemory = new ShortTermMemory(30);
         this.explorationRate = 0.15;
 
-        console.log('n0body v3: loaded with ' + this.knowledge.sessionsPlayed + ' sessions (' + getLevel(this.knowledge.sessionsPlayed) + ')');
+        console.log('n0body v3.1: loaded with ' + this.knowledge.sessionsPlayed + ' sessions (' + getLevel(this.knowledge.sessionsPlayed) + ')');
     }
 
     N0body.prototype.start = function() {
@@ -338,7 +355,7 @@
         if (typeof MK1 === 'undefined') { console.error('n0body: MK1 not found'); return; }
 
         console.log('');
-        console.log('n0body v3 is going live...');
+        console.log('n0body v3.1 is going live...');
         console.log('unlimited session - stop when ready');
         console.log('');
 
@@ -355,12 +372,13 @@
         this.looperRecordStartTime = null;
         this.looperActiveSlots = [];
 
-        this.knowledge.sessionsPlayed++;
+        // Reset melodic state
+        this.lastNote = null;
 
         this._initSession();
         this._startLoops();
 
-        console.log('n0body: session #' + this.knowledge.sessionsPlayed + ' (' + getLevel(this.knowledge.sessionsPlayed) + ')');
+        console.log('n0body: starting session (previous: ' + this.knowledge.sessionsPlayed + ' sessions, ' + Math.round(this.knowledge.totalPlayTime) + ' min)');
     };
 
     N0body.prototype.stop = function() {
@@ -371,30 +389,39 @@
         console.log('n0body: entering outro...');
 
         this.isEnding = true;
-        if (this.transitionCheckTimer) clearInterval(this.transitionCheckTimer);
+        if (this.transitionCheckTimer) {
+            clearInterval(this.transitionCheckTimer);
+            this.transitionCheckTimer = null;
+        }
 
         this._transitionTo('outro');
 
         var outroDuration = randomBetween(this.config.outro.minDuration * 1000, this.config.outro.maxDuration * 1000);
-        console.log('n0body: outro ~' + Math.round(outroDuration / 1000) + 's');
+        console.log('n0body: outro will last ' + Math.round(outroDuration / 1000) + 's');
 
         var self = this;
-        this.outroTimer = setTimeout(function() { self._actualStop(); }, outroDuration);
+        this.outroTimer = setTimeout(function() {
+            console.log('n0body: outro finished, calling _actualStop...');
+            self._actualStop();
+        }, outroDuration);
     };
 
     N0body.prototype._actualStop = function() {
+        console.log('n0body: _actualStop called');
         console.log('');
         console.log('n0body is signing off...');
 
         this.isPlaying = false;
         this.isEnding = false;
 
-        if (this.mainLoop) clearInterval(this.mainLoop);
-        if (this.synthTimer) clearTimeout(this.synthTimer);
-        if (this.fxTimer) clearTimeout(this.fxTimer);
-        if (this.transitionCheckTimer) clearInterval(this.transitionCheckTimer);
-        if (this.outroTimer) clearTimeout(this.outroTimer);
+        // Clear ALL timers
+        if (this.mainLoop) { clearInterval(this.mainLoop); this.mainLoop = null; }
+        if (this.synthTimer) { clearTimeout(this.synthTimer); this.synthTimer = null; }
+        if (this.fxTimer) { clearTimeout(this.fxTimer); this.fxTimer = null; }
+        if (this.transitionCheckTimer) { clearInterval(this.transitionCheckTimer); this.transitionCheckTimer = null; }
+        if (this.outroTimer) { clearTimeout(this.outroTimer); this.outroTimer = null; }
 
+        // Reset MK1
         MK1.sequencer.stop();
         MK1.sequencer.clearAll();
         MK1.synth.stop();
@@ -415,15 +442,25 @@
         this.looperRecordingSlot = null;
         this.looperActiveSlots = [];
 
+        // Update knowledge - INCREMENT sessionsPlayed HERE
         var elapsed = Date.now() - this.sessionStart;
         this.knowledge.totalPlayTime += elapsed / 1000 / 60;
+        this.knowledge.sessionsPlayed++;
+
         if (this.currentScaleName) {
             if (!this.knowledge.scaleSuccess[this.currentScaleName]) {
                 this.knowledge.scaleSuccess[this.currentScaleName] = { sessions: 0, avgScore: 1.0 };
             }
             this.knowledge.scaleSuccess[this.currentScaleName].sessions++;
         }
-        saveKnowledge(this.knowledge);
+
+        // Save and verify
+        var saved = saveKnowledge(this.knowledge);
+        if (saved) {
+            console.log('n0body: knowledge saved - now ' + this.knowledge.sessionsPlayed + ' sessions, ' + Math.round(this.knowledge.totalPlayTime) + ' min total');
+        } else {
+            console.error('n0body: FAILED to save knowledge!');
+        }
 
         console.log('n0body: session ended (' + formatTimeHMS(elapsed) + ')');
         console.log('n0body: transitions=' + this.stats.stateTransitions + ' drums=' + this.stats.drumsPlayed + ' synth=' + this.stats.synthNotesPlayed + ' loops=' + this.stats.loopsRecorded);
@@ -583,11 +620,24 @@
     };
 
     N0body.prototype._chooseSynthNote = function() {
-        var key = this.currentScaleName + '_' + this.currentState;
-        var weights = this.knowledge.notes[key];
-        if (!weights || Object.keys(weights).length === 0) return randomFrom(this.currentScale);
-        if (Math.random() < this.explorationRate) return randomFrom(this.currentScale);
-        return weightedChoice(weights);
+        var scale = this.currentScale;
+
+        // Melodic movement - stepwise, not random
+        if (this.lastNote) {
+            var lastIndex = scale.indexOf(this.lastNote);
+            if (lastIndex !== -1) {
+                // Favor small steps: -2, -1, -1, 0, 0, 1, 1, 2
+                var steps = [-2, -1, -1, 0, 0, 1, 1, 2];
+                var step = randomFrom(steps);
+                var newIndex = Math.max(0, Math.min(scale.length - 1, lastIndex + step));
+                this.lastNote = scale[newIndex];
+                return this.lastNote;
+            }
+        }
+
+        // First note: start in the middle of the scale
+        this.lastNote = scale[Math.floor(scale.length / 2)];
+        return this.lastNote;
     };
 
     N0body.prototype._chooseFxValue = function(param) {
@@ -651,8 +701,17 @@
 
     N0body.prototype._tick = function() {
         if (!this.isPlaying) return;
+
+        // REST - let the base breathe
+        var restChance = this.restProbability[this.currentState] || 0.6;
+        if (Math.random() < restChance) {
+            // Only check looper during rest, no other actions
+            this._maybeUseLooper();
+            return;
+        }
+
         this._maybePlayDrum();
-        if (Math.random() < 0.02) this._maybeModifySequencer();
+        if (Math.random() < 0.015) this._maybeModifySequencer();
         this._maybeUseLooper();
     };
 
@@ -799,35 +858,45 @@
         if (!this.isPlaying) return;
         var self = this;
 
-        var rv = this._chooseFxValue('reverb');
-        var dv = this._chooseFxValue('delay');
-        var fv = this._chooseFxValue('filter');
-        var distv = this._chooseFxValue('distortion');
-        var chv = this._chooseFxValue('chorus');
-        var crv = this._chooseFxValue('crush');
+        // Incremental changes - 15% toward target
+        var fxParams = ['reverb', 'delay', 'filter', 'distortion', 'chorus', 'crush'];
+        var setters = {
+            reverb: function(v) { MK1.fx.setReverb(v); },
+            delay: function(v) { MK1.fx.setDelay(v); },
+            filter: function(v) { MK1.fx.setFilter(v); },
+            distortion: function(v) { if (MK1.fx.setDistortion) MK1.fx.setDistortion(v); },
+            chorus: function(v) { if (MK1.fx.setChorus) MK1.fx.setChorus(v); },
+            crush: function(v) { if (MK1.fx.setCrush) MK1.fx.setCrush(v); }
+        };
 
-        MK1.fx.setReverb(rv);
-        MK1.fx.setDelay(dv);
-        MK1.fx.setFilter(fv);
-        if (MK1.fx.setDistortion) MK1.fx.setDistortion(distv);
-        if (MK1.fx.setChorus) MK1.fx.setChorus(chv);
-        if (MK1.fx.setCrush) MK1.fx.setCrush(crv);
+        for (var i = 0; i < fxParams.length; i++) {
+            var param = fxParams[i];
+            var current = this.currentFx[param];
+            var target = this._chooseFxValue(param);
+            // Move 15% toward target (smooth, incremental)
+            var newValue = current + (target - current) * 0.15;
+            this.currentFx[param] = newValue;
+            setters[param](newValue);
+        }
+
         this.stats.fxChanges++;
 
-        this._learn({ type: 'fx', param: 'reverb', value: rv });
-        this._learn({ type: 'fx', param: 'delay', value: dv });
-        this._learn({ type: 'fx', param: 'filter', value: fv });
+        this._learn({ type: 'fx', param: 'reverb', value: this.currentFx.reverb });
+        this._learn({ type: 'fx', param: 'delay', value: this.currentFx.delay });
+        this._learn({ type: 'fx', param: 'filter', value: this.currentFx.filter });
 
-        if (Math.random() < this.config.waveformChangeChance / 60) {
+        // Rare waveform change
+        if (Math.random() < this.config.waveformChangeChance / 100) {
             var newWaveform = randomFrom(this.config.waveforms);
             if (newWaveform !== this.currentWaveform) {
                 this.currentWaveform = newWaveform;
                 MK1.synth.setWaveform(this.currentWaveform);
                 this.stats.waveformChanges++;
-                console.log('n0body: waveform -> ' + this.currentWaveform);
             }
         }
-        var nextChange = randomBetween(15000, 30000);
+
+        // Slower FX changes: 45-90 seconds
+        var nextChange = randomBetween(this.config.fxChangeInterval.min, this.config.fxChangeInterval.max);
         this.fxTimer = setTimeout(function() { self._scheduleFxChange(); }, nextChange);
     };
 
@@ -855,7 +924,7 @@
     N0body.prototype.status = function() {
         var s = this.getStatus();
         console.log('');
-        console.log('n0body v3 status:');
+        console.log('n0body v3.1 status:');
         console.log('  playing: ' + s.isPlaying + (s.isEnding ? ' (ending)' : ''));
         console.log('  state: ' + s.currentState + ' (' + s.timeInState + 's)');
         console.log('  elapsed: ' + s.elapsedFormatted);
@@ -889,7 +958,7 @@
         window.n0body = new N0body();
 
         console.log('');
-        console.log('n0body v3.0 — unlimited sessions + looper');
+        console.log('n0body v3.1 — less chaos, more groove');
         console.log('');
         console.log('  n0body.start()   — begin session');
         console.log('  n0body.stop()    — graceful outro');
