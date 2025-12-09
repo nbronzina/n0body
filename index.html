@@ -583,31 +583,46 @@
 
     var STATE_CONFIG = {
         intro: {
-            drums: { probability: 0, pads: [1, 2] },
+            drums: {
+                probability: 0.005,
+                padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0, 8: 0.01 }
+            },
             synth: { probability: 0.02, noteDuration: { min: 2, max: 5 }, noteSpacing: { min: 6000, max: 15000 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0, max: 0.15 }, crush: { min: 0, max: 0 } },
         },
         buildup: {
-            drums: { probability: 0.005, pads: [1, 2] },
+            drums: {
+                probability: 0.01,
+                padWeights: { 1: 0.15, 2: 0.08, 3: 0.12, 4: 0.04, 5: 0.03, 6: 0.05, 7: 0.02, 8: 0.04 }
+            },
             synth: { probability: 0.03, noteDuration: { min: 1, max: 3 }, noteSpacing: { min: 3000, max: 8000 } },
-            sequencer: { active: true, density: 0.15, tracksActive: [1, 2] },
+            sequencer: { active: true, density: 0.15, tracksActive: [1, 2, 3, 8] },
             fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.15, max: 0.35 }, filter: { min: 0.5, max: 0.7 }, distortion: { min: 0, max: 0.1 }, chorus: { min: 0.1, max: 0.25 }, crush: { min: 0, max: 0 } },
         },
         peak: {
-            drums: { probability: 0.01, pads: [1, 2] },
+            drums: {
+                probability: 0.015,
+                padWeights: { 1: 0.20, 2: 0.15, 3: 0.18, 4: 0.08, 5: 0.06, 6: 0.08, 7: 0.05, 8: 0.06 }
+            },
             synth: { probability: 0.05, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 2000, max: 5000 } },
-            sequencer: { active: true, density: 0.35, tracksActive: [1, 2, 3, 4] },
+            sequencer: { active: true, density: 0.35, tracksActive: [1, 2, 3, 4, 5, 6, 8] },
             fx: { reverb: { min: 0.5, max: 0.75 }, delay: { min: 0.25, max: 0.5 }, filter: { min: 0.6, max: 0.85 }, distortion: { min: 0.05, max: 0.2 }, chorus: { min: 0.15, max: 0.35 }, crush: { min: 0, max: 0.1 } },
         },
         breakdown: {
-            drums: { probability: 0, pads: [1, 2] },
+            drums: {
+                probability: 0.008,
+                padWeights: { 1: 0.08, 2: 0.04, 3: 0.06, 4: 0.03, 5: 0.02, 6: 0.04, 7: 0.01, 8: 0.03 }
+            },
             synth: { probability: 0.03, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 4000, max: 10000 } },
-            sequencer: { active: true, density: 0.1, tracksActive: [1, 2] },
+            sequencer: { active: true, density: 0.1, tracksActive: [1, 2, 3, 6] },
             fx: { reverb: { min: 0.45, max: 0.6 }, delay: { min: 0.1, max: 0.25 }, filter: { min: 0.35, max: 0.55 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0.1, max: 0.2 }, crush: { min: 0, max: 0 } },
         },
         outro: {
-            drums: { probability: 0, pads: [1] },
+            drums: {
+                probability: 0.003,
+                padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0.01, 8: 0 }
+            },
             synth: { probability: 0.01, noteDuration: { min: 3, max: 6 }, noteSpacing: { min: 8000, max: 20000 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.6, max: 0.8 }, delay: { min: 0, max: 0.1 }, filter: { min: 0.2, max: 0.4 }, distortion: { min: 0, max: 0 }, chorus: { min: 0, max: 0.1 }, crush: { min: 0, max: 0 } },
@@ -1027,12 +1042,27 @@
     N0body.prototype._chooseDrumPad = function() {
         var state = this.currentState;
         var stateConf = this.stateConfig[state];
-        var availablePads = stateConf.drums.pads;
-        if (Math.random() < this.getExplorationRate()) return randomFrom(availablePads);
-        var weights = {};
-        var self = this;
-        availablePads.forEach(function(pad) { weights[pad] = (self.knowledge.drums[state] && self.knowledge.drums[state][pad]) || 1.0; });
-        return weightedChoice(weights);
+        var padWeights = stateConf.drums.padWeights;
+        var learned = this.knowledge.drums[state] || {};
+
+        // Exploration: random from pads with non-zero weight
+        if (Math.random() < this.getExplorationRate()) {
+            var availablePads = [];
+            for (var p = 1; p <= 8; p++) {
+                if (padWeights[p] > 0) availablePads.push(p);
+            }
+            return availablePads.length > 0 ? randomFrom(availablePads) : 1;
+        }
+
+        // Exploitation: combine base weights with learned preferences
+        var combined = {};
+        for (var pad = 1; pad <= 8; pad++) {
+            var baseWeight = padWeights[pad] || 0;
+            var learnedWeight = learned[pad] || 1.0;
+            combined[pad] = baseWeight * learnedWeight;
+        }
+
+        return weightedChoice(combined);
     };
 
     N0body.prototype._chooseSynthNote = function() {
@@ -1385,6 +1415,16 @@
     N0body.prototype._onStateChange = function(newState) {
         // Maybe change scale on certain transitions
         this._maybeChangeScale(newState);
+
+        // Cymbal crash on important transitions
+        if (this.previousState) {
+            var crashTransitions = ['buildup_to_peak', 'breakdown_to_buildup', 'breakdown_to_peak'];
+            var transition = this.previousState + '_to_' + newState;
+            if (crashTransitions.indexOf(transition) !== -1 && Math.random() < 0.7) {
+                MK1.drums.hit(7);  // Cymbal crash
+                console.log('n0body: crash on ' + transition);
+            }
+        }
 
         var stateConf = this.stateConfig[newState];
         if (stateConf.sequencer.active) { if (!MK1.sequencer.isPlaying()) MK1.sequencer.start(); }
