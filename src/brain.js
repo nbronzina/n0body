@@ -1,9 +1,19 @@
-// brain.js — Main N0body class
+// brain.js — Main N0body class with learning
 
 import { CONFIG } from './config.js';
 import { SCALES, SCALE_MOODS } from './scales.js';
 import { STATE_CONFIG } from './states.js';
 import { randomBetween, randomIntBetween, randomFrom, formatTime } from './utils.js';
+import { saveKnowledge, loadKnowledge, resetKnowledge } from './memory.js';
+import {
+    initKnowledge,
+    ShortTermMemory,
+    evaluateReward,
+    getLearningRate,
+    clamp,
+    weightedChoice,
+    getLevel,
+} from './learning.js';
 
 class N0body {
     constructor(config = CONFIG, scales = SCALES, scaleMoods = SCALE_MOODS, stateConfig = STATE_CONFIG) {
@@ -15,7 +25,7 @@ class N0body {
         // Estado interno
         this.isPlaying = false;
         this.sessionStart = null;
-        this.sessionDuration = null;  // en ms
+        this.sessionDuration = null;
         this.currentState = 'intro';
         this.currentScale = null;
         this.currentScaleName = null;
@@ -36,6 +46,13 @@ class N0body {
             fxChanges: 0,
             waveformChanges: 0,
         };
+
+        // Learning system
+        this.knowledge = loadKnowledge() || initKnowledge();
+        this.shortTermMemory = new ShortTermMemory(30);
+        this.explorationRate = 0.15;  // 15% exploration, 85% exploitation
+
+        console.log(`n0body: loaded with ${this.knowledge.sessionsPlayed} sessions of experience (${getLevel(this.knowledge.sessionsPlayed)})`);
     }
 
     // ========== CONTROL ==========
@@ -46,7 +63,6 @@ class N0body {
             return;
         }
 
-        // Verificar que MK1 existe
         if (typeof MK1 === 'undefined') {
             console.error('n0body: MK1 API not found. Make sure mk-1 is loaded.');
             return;
@@ -65,7 +81,7 @@ class N0body {
             this.config.session.durationMinutes.max * 60 * 1000
         );
 
-        // Reset stats
+        // Reset stats and short-term memory
         this.stats = {
             drumsPlayed: 0,
             synthNotesPlayed: 0,
@@ -73,12 +89,18 @@ class N0body {
             fxChanges: 0,
             waveformChanges: 0,
         };
+        this.shortTermMemory.clear();
+
+        // Increment session counter
+        this.knowledge.sessionsPlayed++;
 
         this.initSession();
         this.startLoops();
 
         const durationMin = Math.round(this.sessionDuration / 1000 / 60);
-        console.log(`n0body: session duration ~${durationMin} minutes`);
+        console.log(`n0body: session #${this.knowledge.sessionsPlayed} starting`);
+        console.log(`n0body: level: ${getLevel(this.knowledge.sessionsPlayed)}`);
+        console.log(`n0body: duration ~${durationMin} minutes`);
         console.log('');
     }
 
@@ -105,8 +127,23 @@ class N0body {
         MK1.sequencer.stop();
         MK1.synth.stop();
 
-        // Log stats
+        // Calculate session duration and update knowledge
         const elapsed = Date.now() - this.sessionStart;
+        const durationMinutes = elapsed / 1000 / 60;
+        this.knowledge.totalPlayTime += durationMinutes;
+
+        // Update scale success
+        if (this.currentScaleName) {
+            if (!this.knowledge.scaleSuccess[this.currentScaleName]) {
+                this.knowledge.scaleSuccess[this.currentScaleName] = { sessions: 0, avgScore: 1.0 };
+            }
+            this.knowledge.scaleSuccess[this.currentScaleName].sessions++;
+        }
+
+        // Save knowledge
+        saveKnowledge(this.knowledge);
+
+        // Log stats
         console.log('n0body: session stats');
         console.log(`  duration: ${formatTime(elapsed)}`);
         console.log(`  drums: ${this.stats.drumsPlayed}`);
@@ -115,8 +152,159 @@ class N0body {
         console.log(`  fx changes: ${this.stats.fxChanges}`);
         console.log(`  waveform changes: ${this.stats.waveformChanges}`);
         console.log('');
+        console.log(`n0body: total experience: ${this.knowledge.sessionsPlayed} sessions, ${Math.round(this.knowledge.totalPlayTime)} minutes`);
         console.log('n0body: session ended. see you next time.');
         console.log('');
+    }
+
+    // ========== LEARNING ==========
+
+    learn(action) {
+        // Add context to action
+        const contextualAction = {
+            ...action,
+            context: {
+                state: this.currentState,
+                bpm: this.currentBPM,
+                scale: this.currentScaleName,
+                mood: this.currentMood,
+            }
+        };
+
+        // Add to short-term memory
+        this.shortTermMemory.add(contextualAction);
+
+        // Evaluate recent performance
+        const recentActions = this.shortTermMemory.getRecent(10);
+        const reward = evaluateReward(recentActions);
+
+        // Get learning rate (decreases with experience)
+        const lr = getLearningRate(this.knowledge.sessionsPlayed);
+
+        // Update preferences based on action type
+        this.updatePreferences(action, reward, lr);
+
+        // Learn combo patterns
+        this.learnCombos(reward, lr);
+    }
+
+    updatePreferences(action, reward, lr) {
+        const state = this.currentState;
+
+        if (action.type === 'drum') {
+            const current = this.knowledge.drums[state][action.pad] || 1.0;
+            const updated = current + (reward * lr);
+            this.knowledge.drums[state][action.pad] = clamp(updated, 0.1, 5.0);
+        }
+
+        if (action.type === 'synth' && action.note) {
+            const key = `${this.currentScaleName}_${state}`;
+            if (!this.knowledge.notes[key]) {
+                this.knowledge.notes[key] = {};
+                this.currentScale.forEach(note => {
+                    this.knowledge.notes[key][note] = 1.0;
+                });
+            }
+            const current = this.knowledge.notes[key][action.note] || 1.0;
+            const updated = current + (reward * lr);
+            this.knowledge.notes[key][action.note] = clamp(updated, 0.1, 5.0);
+        }
+
+        if (action.type === 'fx' && action.param && action.value !== undefined) {
+            const fxState = this.knowledge.fx[state]?.[action.param];
+            if (fxState && reward > 0) {
+                // Move preferred toward current value when it sounds good
+                fxState.preferred = fxState.preferred * 0.9 + action.value * 0.1;
+            }
+        }
+    }
+
+    learnCombos(reward, lr) {
+        const recent = this.shortTermMemory.getRecent(3);
+        if (recent.length < 3) return;
+
+        // Create combo key from last 3 action types
+        const comboKey = recent.map(a => {
+            if (a.type === 'drum') return `drum${a.pad}`;
+            return a.type;
+        }).join('+');
+
+        if (!this.knowledge.combos[comboKey]) {
+            this.knowledge.combos[comboKey] = { score: 1.0, count: 0 };
+        }
+
+        const combo = this.knowledge.combos[comboKey];
+        combo.score = clamp(combo.score + (reward * lr), 0.1, 5.0);
+        combo.count++;
+    }
+
+    // ========== INFORMED DECISIONS ==========
+
+    chooseDrumPad() {
+        const state = this.currentState;
+        const stateConf = this.stateConfig[state];
+        const availablePads = stateConf.drums.pads;
+
+        // Exploration: try something random
+        if (Math.random() < this.explorationRate) {
+            return randomFrom(availablePads);
+        }
+
+        // Exploitation: use learned preferences
+        const weights = {};
+        availablePads.forEach(pad => {
+            weights[pad] = this.knowledge.drums[state][pad] || 1.0;
+        });
+
+        return weightedChoice(weights);
+    }
+
+    chooseSynthNote() {
+        const key = `${this.currentScaleName}_${this.currentState}`;
+        const weights = this.knowledge.notes[key];
+
+        // If no learned preferences, random from scale
+        if (!weights || Object.keys(weights).length === 0) {
+            return randomFrom(this.currentScale);
+        }
+
+        // Exploration
+        if (Math.random() < this.explorationRate) {
+            return randomFrom(this.currentScale);
+        }
+
+        // Exploitation
+        return weightedChoice(weights);
+    }
+
+    chooseFxValue(param) {
+        const state = this.currentState;
+        const fxPref = this.knowledge.fx[state]?.[param];
+
+        if (!fxPref) {
+            // No learned preference, use state config
+            const range = this.stateConfig[state].fx[param];
+            return randomBetween(range.min, range.max);
+        }
+
+        // Use preferred value with variance
+        const value = fxPref.preferred + (Math.random() - 0.5) * fxPref.variance * 2;
+        return clamp(value, 0, 1);
+    }
+
+    chooseBPM() {
+        const bpmPref = this.knowledge.bpmPreference[this.currentMood];
+
+        if (!bpmPref) {
+            return Math.round(randomBetween(
+                this.config.tempo.bpm.min,
+                this.config.tempo.bpm.max
+            ));
+        }
+
+        // Use preferred BPM with variance
+        const bpm = bpmPref.preferred + (Math.random() - 0.5) * bpmPref.variance * 2;
+        return Math.round(clamp(bpm, this.config.tempo.bpm.min, this.config.tempo.bpm.max));
     }
 
     // ========== INICIALIZACIÓN ==========
@@ -125,15 +313,20 @@ class N0body {
         // Elegir mood y escala para la sesión
         this.currentMood = randomFrom(['dark', 'neutral', 'bright']);
         const scaleNames = this.scaleMoods[this.currentMood];
-        this.currentScaleName = randomFrom(scaleNames);
+
+        // Use scale success to prefer better performing scales
+        const scaleWeights = {};
+        scaleNames.forEach(name => {
+            const success = this.knowledge.scaleSuccess[name];
+            scaleWeights[name] = success ? success.avgScore : 1.0;
+        });
+
+        this.currentScaleName = weightedChoice(scaleWeights);
         this.currentScale = this.scales[this.currentScaleName];
         console.log(`n0body: mood=${this.currentMood}, scale=${this.currentScaleName}`);
 
-        // Elegir BPM
-        this.currentBPM = Math.round(randomBetween(
-            this.config.tempo.bpm.min,
-            this.config.tempo.bpm.max
-        ));
+        // Elegir BPM using learned preference
+        this.currentBPM = this.chooseBPM();
         MK1.tempo.setBPM(this.currentBPM);
         console.log(`n0body: BPM=${this.currentBPM}`);
 
@@ -142,11 +335,10 @@ class N0body {
         MK1.synth.setWaveform(this.currentWaveform);
         console.log(`n0body: waveform=${this.currentWaveform}`);
 
-        // FX iniciales
-        const introFx = this.stateConfig.intro.fx;
-        MK1.fx.setReverb(randomBetween(introFx.reverb.min, introFx.reverb.max));
-        MK1.fx.setDelay(randomBetween(introFx.delay.min, introFx.delay.max));
-        MK1.fx.setFilter(randomBetween(introFx.filter.min, introFx.filter.max));
+        // FX iniciales using learned preferences
+        MK1.fx.setReverb(this.chooseFxValue('reverb'));
+        MK1.fx.setDelay(this.chooseFxValue('delay'));
+        MK1.fx.setFilter(this.chooseFxValue('filter'));
 
         // Volumen inicial
         MK1.master.setVolume(0.7);
@@ -162,33 +354,23 @@ class N0body {
     // ========== LOOPS ==========
 
     startLoops() {
-        // Main loop - actualiza estado y toma decisiones (cada 100ms)
         this.mainLoop = setInterval(() => this.tick(), 100);
-
-        // Synth loop - notas independientes
         this.scheduleSynth();
-
-        // FX loop - cambios graduales
         this.scheduleFxChange();
     }
 
     tick() {
         if (!this.isPlaying) return;
 
-        // Verificar si terminó la sesión
         const elapsed = Date.now() - this.sessionStart;
         if (elapsed >= this.sessionDuration) {
             this.stop();
             return;
         }
 
-        // Actualizar estado
         this.updateState(elapsed);
-
-        // Decisiones de drums (alta frecuencia)
         this.maybePlayDrum();
 
-        // Decisiones de sequencer (baja frecuencia, ~2% por tick)
         if (Math.random() < 0.02) {
             this.maybeModifySequencer();
         }
@@ -235,7 +417,6 @@ class N0body {
     onStateChange(newState) {
         const stateConf = this.stateConfig[newState];
 
-        // Activar/desactivar sequencer
         if (stateConf.sequencer.active) {
             if (!MK1.sequencer.isPlaying()) {
                 MK1.sequencer.start();
@@ -248,7 +429,6 @@ class N0body {
             }
         }
 
-        // Ajustar FX para el nuevo estado
         this.transitionFx(stateConf.fx);
     }
 
@@ -257,9 +437,12 @@ class N0body {
     maybePlayDrum() {
         const stateConf = this.stateConfig[this.currentState];
         if (Math.random() < stateConf.drums.probability) {
-            const pad = randomFrom(stateConf.drums.pads);
+            const pad = this.chooseDrumPad();  // Now uses learning
             MK1.drums.hit(pad);
             this.stats.drumsPlayed++;
+
+            // Learn from this action
+            this.learn({ type: 'drum', pad: pad });
         }
     }
 
@@ -270,23 +453,23 @@ class N0body {
 
         const stateConf = this.stateConfig[this.currentState];
 
-        // Decidir si tocar nota
         if (Math.random() < stateConf.synth.probability) {
-            const note = randomFrom(this.currentScale);
+            const note = this.chooseSynthNote();  // Now uses learning
             const duration = randomBetween(
                 stateConf.synth.noteDuration.min,
                 stateConf.synth.noteDuration.max
             );
             MK1.synth.play(note, duration);
             this.stats.synthNotesPlayed++;
+
+            // Learn from this action
+            this.learn({ type: 'synth', note: note, duration: duration });
         }
 
-        // Programar siguiente nota
         const spacing = randomBetween(
             stateConf.synth.noteSpacing.min,
             stateConf.synth.noteSpacing.max
         );
-        // Humanización: agregar variación aleatoria
         const humanized = spacing + randomBetween(
             -this.config.humanize.timing,
             this.config.humanize.timing
@@ -302,14 +485,15 @@ class N0body {
         if (!stateConf.sequencer.active) return;
         if (!stateConf.sequencer.tracksActive) return;
 
-        // Elegir track de los activos para este estado
         const track = randomFrom(stateConf.sequencer.tracksActive);
         const step = randomIntBetween(1, 16);
 
-        // Toggle basado en densidad deseada
         const shouldActivate = Math.random() < stateConf.sequencer.density;
         MK1.sequencer.setStep(track, step, shouldActivate);
         this.stats.sequencerChanges++;
+
+        // Learn from this action
+        this.learn({ type: 'sequencer', track: track, step: step, active: shouldActivate });
     }
 
     // ========== FX ==========
@@ -317,13 +501,20 @@ class N0body {
     scheduleFxChange() {
         if (!this.isPlaying) return;
 
-        const stateConf = this.stateConfig[this.currentState];
+        // Use learned FX values
+        const reverbValue = this.chooseFxValue('reverb');
+        const delayValue = this.chooseFxValue('delay');
+        const filterValue = this.chooseFxValue('filter');
 
-        // Cambios sutiles de FX dentro del rango del estado actual
-        MK1.fx.setReverb(randomBetween(stateConf.fx.reverb.min, stateConf.fx.reverb.max));
-        MK1.fx.setDelay(randomBetween(stateConf.fx.delay.min, stateConf.fx.delay.max));
-        MK1.fx.setFilter(randomBetween(stateConf.fx.filter.min, stateConf.fx.filter.max));
+        MK1.fx.setReverb(reverbValue);
+        MK1.fx.setDelay(delayValue);
+        MK1.fx.setFilter(filterValue);
         this.stats.fxChanges++;
+
+        // Learn from FX choices
+        this.learn({ type: 'fx', param: 'reverb', value: reverbValue });
+        this.learn({ type: 'fx', param: 'delay', value: delayValue });
+        this.learn({ type: 'fx', param: 'filter', value: filterValue });
 
         // Posible cambio de waveform
         if (Math.random() < this.config.waveformChangeChance / 60) {
@@ -336,17 +527,14 @@ class N0body {
             }
         }
 
-        // Programar siguiente cambio (cada 15-30 segundos)
         const nextChange = randomBetween(15000, 30000);
         this.fxTimer = setTimeout(() => this.scheduleFxChange(), nextChange);
     }
 
     transitionFx(targetFx) {
-        // Transición de FX al cambiar estado
-        // Por ahora, cambio directo dentro del rango del nuevo estado
-        MK1.fx.setReverb(randomBetween(targetFx.reverb.min, targetFx.reverb.max));
-        MK1.fx.setDelay(randomBetween(targetFx.delay.min, targetFx.delay.max));
-        MK1.fx.setFilter(randomBetween(targetFx.filter.min, targetFx.filter.max));
+        MK1.fx.setReverb(this.chooseFxValue('reverb'));
+        MK1.fx.setDelay(this.chooseFxValue('delay'));
+        MK1.fx.setFilter(this.chooseFxValue('filter'));
     }
 
     // ========== DEBUG ==========
@@ -368,10 +556,14 @@ class N0body {
             bpm: this.currentBPM,
             waveform: this.currentWaveform,
             stats: { ...this.stats },
+            experience: {
+                sessions: this.knowledge.sessionsPlayed,
+                totalMinutes: Math.round(this.knowledge.totalPlayTime),
+                level: getLevel(this.knowledge.sessionsPlayed),
+            },
         };
     }
 
-    // Alias para logging rápido
     status() {
         const s = this.getStatus();
         console.log('');
@@ -384,8 +576,22 @@ class N0body {
         console.log(`  scale: ${s.scale}`);
         console.log(`  bpm: ${s.bpm}`);
         console.log(`  waveform: ${s.waveform}`);
+        console.log(`  experience: ${s.experience.sessions} sessions, ${s.experience.totalMinutes} min (${s.experience.level})`);
         console.log('');
         return s;
+    }
+
+    // ========== KNOWLEDGE MANAGEMENT ==========
+
+    reset() {
+        resetKnowledge();
+        this.knowledge = initKnowledge();
+        this.shortTermMemory.clear();
+        console.log('n0body: reset to newborn state');
+    }
+
+    getKnowledge() {
+        return this.knowledge;
     }
 }
 

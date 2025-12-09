@@ -1,5 +1,6 @@
 /**
  * n0body — the first non-human performer of Playground
+ * v2.0 — with persistent learning
  *
  * Usage:
  *   1. Open mk-1: https://nbronzina.github.io/playground/mk-1.html
@@ -8,28 +9,237 @@
  *   4. Run: n0body.start()
  *   5. To stop: n0body.stop()
  *   6. To check status: n0body.status()
+ *   7. To reset learning: n0body.reset()
  */
 
 (function() {
     'use strict';
 
+    // ========== MEMORY (localStorage persistence) ==========
+
+    const STORAGE_KEY = 'n0body_knowledge';
+
+    function saveKnowledge(knowledge) {
+        try {
+            const data = JSON.stringify(knowledge);
+            localStorage.setItem(STORAGE_KEY, data);
+            console.log('n0body: knowledge saved');
+            return true;
+        } catch (e) {
+            console.error('n0body: failed to save knowledge', e);
+            return false;
+        }
+    }
+
+    function loadKnowledge() {
+        try {
+            const data = localStorage.getItem(STORAGE_KEY);
+            if (data) {
+                const knowledge = JSON.parse(data);
+                console.log('n0body: knowledge loaded (' + knowledge.sessionsPlayed + ' sessions)');
+                return knowledge;
+            }
+        } catch (e) {
+            console.error('n0body: failed to load knowledge', e);
+        }
+        return null;
+    }
+
+    function resetKnowledge() {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            console.log('n0body: knowledge reset');
+            return true;
+        } catch (e) {
+            console.error('n0body: failed to reset knowledge', e);
+            return false;
+        }
+    }
+
+    // ========== LEARNING SYSTEM ==========
+
+    function initKnowledge() {
+        const states = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+
+        const drums = {};
+        states.forEach(function(state) {
+            drums[state] = {};
+            for (var i = 1; i <= 8; i++) {
+                drums[state][i] = 1.0;
+            }
+        });
+
+        const fx = {
+            intro: { reverb: { preferred: 0.4, variance: 0.15 }, delay: { preferred: 0.1, variance: 0.1 }, filter: { preferred: 0.5, variance: 0.15 } },
+            buildup: { reverb: { preferred: 0.5, variance: 0.15 }, delay: { preferred: 0.3, variance: 0.1 }, filter: { preferred: 0.6, variance: 0.15 } },
+            peak: { reverb: { preferred: 0.65, variance: 0.15 }, delay: { preferred: 0.45, variance: 0.15 }, filter: { preferred: 0.75, variance: 0.15 } },
+            breakdown: { reverb: { preferred: 0.5, variance: 0.15 }, delay: { preferred: 0.2, variance: 0.1 }, filter: { preferred: 0.4, variance: 0.15 } },
+            outro: { reverb: { preferred: 0.7, variance: 0.1 }, delay: { preferred: 0.05, variance: 0.05 }, filter: { preferred: 0.3, variance: 0.1 } },
+        };
+
+        return {
+            sessionsPlayed: 0,
+            totalPlayTime: 0,
+            drums: drums,
+            notes: {},
+            combos: {},
+            fx: fx,
+            scaleSuccess: {},
+            bpmPreference: {
+                dark: { preferred: 82, variance: 10 },
+                bright: { preferred: 110, variance: 15 },
+                neutral: { preferred: 95, variance: 12 },
+            },
+        };
+    }
+
+    function evaluateReward(recentActions) {
+        if (recentActions.length < 3) return 0;
+
+        const now = Date.now();
+        var score = 0;
+
+        const actionsLast2Sec = recentActions.filter(function(a) { return now - a.timestamp < 2000; }).length;
+        if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) {
+            score += 1;
+        } else if (actionsLast2Sec > 7) {
+            score -= 1;
+        } else if (actionsLast2Sec === 0) {
+            score -= 0.5;
+        }
+
+        const types = {};
+        recentActions.forEach(function(a) { types[a.type] = true; });
+        const typeCount = Object.keys(types).length;
+        if (typeCount >= 2) score += 0.5;
+        if (typeCount >= 3) score += 0.3;
+
+        if (recentActions.length >= 4) {
+            const intervals = [];
+            for (var i = 1; i < recentActions.length; i++) {
+                intervals.push(recentActions[i].timestamp - recentActions[i-1].timestamp);
+            }
+            const avgInterval = intervals.reduce(function(a, b) { return a + b; }, 0) / intervals.length;
+            const variance = intervals.reduce(function(sum, intv) { return sum + Math.pow(intv - avgInterval, 2); }, 0) / intervals.length;
+            const stdDev = Math.sqrt(variance);
+
+            if (avgInterval > 0 && stdDev < avgInterval * 0.5) {
+                score += 1;
+            } else if (avgInterval > 0 && stdDev < avgInterval * 0.3) {
+                score += 0.5;
+            }
+        }
+
+        const synthActions = recentActions.filter(function(a) { return a.type === 'synth' && a.note; });
+        if (synthActions.length >= 2) {
+            score += 0.3;
+        }
+
+        const lastAction = recentActions[recentActions.length - 1];
+        if (lastAction && lastAction.context) {
+            const state = lastAction.context.state;
+            const density = actionsLast2Sec;
+
+            if (state === 'intro' && density > 3) {
+                score -= 0.5;
+            } else if (state === 'peak' && density < 2) {
+                score -= 0.3;
+            } else if (state === 'outro' && density > 2) {
+                score -= 0.3;
+            }
+        }
+
+        return Math.max(-1, Math.min(3, score));
+    }
+
+    function getLearningRate(sessionsPlayed) {
+        const baseLR = 0.25;
+        const experienceFactor = Math.max(0.1, 1 - (sessionsPlayed / 100));
+        return baseLR * experienceFactor;
+    }
+
+    function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
+    function weightedChoice(weights) {
+        const entries = [];
+        for (var key in weights) {
+            if (weights.hasOwnProperty(key)) {
+                entries.push([key, weights[key]]);
+            }
+        }
+        if (entries.length === 0) return null;
+
+        var total = 0;
+        entries.forEach(function(e) { total += Math.max(0, e[1]); });
+        if (total === 0) return entries[0][0];
+
+        var random = Math.random() * total;
+
+        for (var i = 0; i < entries.length; i++) {
+            random -= Math.max(0, entries[i][1]);
+            if (random <= 0) {
+                var k = entries[i][0];
+                return isNaN(parseInt(k)) ? k : parseInt(k);
+            }
+        }
+
+        var fallbackKey = entries[0][0];
+        return isNaN(parseInt(fallbackKey)) ? fallbackKey : parseInt(fallbackKey);
+    }
+
+    function getLevel(sessions) {
+        if (sessions < 5) return 'newborn';
+        if (sessions < 15) return 'learning';
+        if (sessions < 30) return 'developing';
+        if (sessions < 50) return 'skilled';
+        if (sessions < 100) return 'experienced';
+        return 'master';
+    }
+
+    // ========== SHORT TERM MEMORY ==========
+
+    function ShortTermMemory(maxSize) {
+        this.actions = [];
+        this.maxSize = maxSize || 30;
+    }
+
+    ShortTermMemory.prototype.add = function(action) {
+        this.actions.push({
+            type: action.type,
+            pad: action.pad,
+            note: action.note,
+            param: action.param,
+            value: action.value,
+            context: action.context,
+            timestamp: Date.now()
+        });
+
+        while (this.actions.length > this.maxSize) {
+            this.actions.shift();
+        }
+    };
+
+    ShortTermMemory.prototype.getRecent = function(count) {
+        count = count || 10;
+        return this.actions.slice(-count);
+    };
+
+    ShortTermMemory.prototype.clear = function() {
+        this.actions = [];
+    };
+
     // ========== SCALES ==========
 
     const SCALES = {
-        // Menores (mood oscuro, melancólico)
         cMinor: ['C3', 'D3', 'Eb3', 'F3', 'G3', 'Ab3', 'Bb3', 'C4', 'D4', 'Eb4', 'F4', 'G4'],
         aMinor: ['A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4'],
         dMinor: ['D3', 'E3', 'F3', 'G3', 'A3', 'Bb3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4'],
-
-        // Mayores (mood brillante)
         cMajor: ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4'],
         gMajor: ['G2', 'A2', 'B2', 'C3', 'D3', 'E3', 'F#3', 'G3', 'A3', 'B3', 'C4', 'D4'],
-
-        // Pentatónicas (versátiles, menos disonancia)
         cMinorPentatonic: ['C3', 'Eb3', 'F3', 'G3', 'Bb3', 'C4', 'Eb4', 'F4', 'G4', 'Bb4'],
         aMinorPentatonic: ['A2', 'C3', 'D3', 'E3', 'G3', 'A3', 'C4', 'D4', 'E4', 'G4'],
-
-        // Modales (ambient, experimental)
         dDorian: ['D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4'],
         aPhrygian: ['A2', 'Bb2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'Bb3', 'C4', 'D4', 'E4'],
     };
@@ -43,481 +253,505 @@
     // ========== CONFIG ==========
 
     const CONFIG = {
-        session: {
-            durationMinutes: { min: 15, max: 45 },
-        },
-        tempo: {
-            bpm: { min: 70, max: 130 },
-        },
-        stateDistribution: {
-            intro: 0.08,
-            buildup: 0.30,
-            peak: 0.30,
-            breakdown: 0.20,
-            outro: 0.12,
-        },
+        session: { durationMinutes: { min: 15, max: 45 } },
+        tempo: { bpm: { min: 70, max: 130 } },
+        stateDistribution: { intro: 0.08, buildup: 0.30, peak: 0.30, breakdown: 0.20, outro: 0.12 },
         waveforms: ['sine', 'square', 'saw', 'triangle'],
         waveformChangeChance: 0.3,
-        humanize: {
-            timing: 50,
-        },
+        humanize: { timing: 50 },
     };
-
-    // ========== STATE CONFIG ==========
 
     const STATE_CONFIG = {
         intro: {
-            drums: {
-                probability: 0.05,
-                pads: [1, 2],
-            },
-            synth: {
-                probability: 0.15,
-                noteDuration: { min: 0.5, max: 2 },
-                noteSpacing: { min: 2000, max: 5000 },
-            },
-            sequencer: {
-                active: false,
-            },
-            fx: {
-                reverb: { min: 0.3, max: 0.5 },
-                delay: { min: 0, max: 0.2 },
-                filter: { min: 0.4, max: 0.6 },
-            },
+            drums: { probability: 0.05, pads: [1, 2] },
+            synth: { probability: 0.15, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 2000, max: 5000 } },
+            sequencer: { active: false },
+            fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 } },
         },
         buildup: {
-            drums: {
-                probability: 0.2,
-                pads: [1, 2, 3, 5],
-            },
-            synth: {
-                probability: 0.35,
-                noteDuration: { min: 0.2, max: 1 },
-                noteSpacing: { min: 800, max: 2500 },
-            },
-            sequencer: {
-                active: true,
-                density: 0.2,
-                tracksActive: [1, 2],
-            },
-            fx: {
-                reverb: { min: 0.4, max: 0.6 },
-                delay: { min: 0.2, max: 0.4 },
-                filter: { min: 0.5, max: 0.7 },
-            },
+            drums: { probability: 0.2, pads: [1, 2, 3, 5] },
+            synth: { probability: 0.35, noteDuration: { min: 0.2, max: 1 }, noteSpacing: { min: 800, max: 2500 } },
+            sequencer: { active: true, density: 0.2, tracksActive: [1, 2] },
+            fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.2, max: 0.4 }, filter: { min: 0.5, max: 0.7 } },
         },
         peak: {
-            drums: {
-                probability: 0.4,
-                pads: [1, 2, 3, 4, 5, 6, 7, 8],
-            },
-            synth: {
-                probability: 0.5,
-                noteDuration: { min: 0.1, max: 0.8 },
-                noteSpacing: { min: 300, max: 1200 },
-            },
-            sequencer: {
-                active: true,
-                density: 0.5,
-                tracksActive: [1, 2, 3, 4, 5, 6],
-            },
-            fx: {
-                reverb: { min: 0.5, max: 0.8 },
-                delay: { min: 0.3, max: 0.6 },
-                filter: { min: 0.6, max: 0.9 },
-            },
+            drums: { probability: 0.4, pads: [1, 2, 3, 4, 5, 6, 7, 8] },
+            synth: { probability: 0.5, noteDuration: { min: 0.1, max: 0.8 }, noteSpacing: { min: 300, max: 1200 } },
+            sequencer: { active: true, density: 0.5, tracksActive: [1, 2, 3, 4, 5, 6] },
+            fx: { reverb: { min: 0.5, max: 0.8 }, delay: { min: 0.3, max: 0.6 }, filter: { min: 0.6, max: 0.9 } },
         },
         breakdown: {
-            drums: {
-                probability: 0.15,
-                pads: [1, 2, 5],
-            },
-            synth: {
-                probability: 0.25,
-                noteDuration: { min: 0.3, max: 1.5 },
-                noteSpacing: { min: 1500, max: 4000 },
-            },
-            sequencer: {
-                active: true,
-                density: 0.15,
-                tracksActive: [1, 2],
-            },
-            fx: {
-                reverb: { min: 0.4, max: 0.6 },
-                delay: { min: 0.1, max: 0.3 },
-                filter: { min: 0.3, max: 0.5 },
-            },
+            drums: { probability: 0.15, pads: [1, 2, 5] },
+            synth: { probability: 0.25, noteDuration: { min: 0.3, max: 1.5 }, noteSpacing: { min: 1500, max: 4000 } },
+            sequencer: { active: true, density: 0.15, tracksActive: [1, 2] },
+            fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.1, max: 0.3 }, filter: { min: 0.3, max: 0.5 } },
         },
         outro: {
-            drums: {
-                probability: 0.03,
-                pads: [1],
-            },
-            synth: {
-                probability: 0.1,
-                noteDuration: { min: 1, max: 3 },
-                noteSpacing: { min: 3000, max: 8000 },
-            },
-            sequencer: {
-                active: false,
-            },
-            fx: {
-                reverb: { min: 0.6, max: 0.8 },
-                delay: { min: 0, max: 0.1 },
-                filter: { min: 0.2, max: 0.4 },
-            },
+            drums: { probability: 0.03, pads: [1] },
+            synth: { probability: 0.1, noteDuration: { min: 1, max: 3 }, noteSpacing: { min: 3000, max: 8000 } },
+            sequencer: { active: false },
+            fx: { reverb: { min: 0.6, max: 0.8 }, delay: { min: 0, max: 0.1 }, filter: { min: 0.2, max: 0.4 } },
         },
     };
 
     // ========== UTILS ==========
 
-    function randomBetween(min, max) {
-        return Math.random() * (max - min) + min;
-    }
-
-    function randomIntBetween(min, max) {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
-    }
-
-    function randomFrom(array) {
-        return array[Math.floor(Math.random() * array.length)];
-    }
-
+    function randomBetween(min, max) { return Math.random() * (max - min) + min; }
+    function randomIntBetween(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+    function randomFrom(array) { return array[Math.floor(Math.random() * array.length)]; }
     function formatTime(ms) {
         const totalSeconds = Math.floor(ms / 1000);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
-        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        return minutes + ':' + seconds.toString().padStart(2, '0');
     }
 
     // ========== N0BODY CLASS ==========
 
-    class N0body {
-        constructor() {
-            this.config = CONFIG;
-            this.scales = SCALES;
-            this.scaleMoods = SCALE_MOODS;
-            this.stateConfig = STATE_CONFIG;
+    function N0body() {
+        this.config = CONFIG;
+        this.scales = SCALES;
+        this.scaleMoods = SCALE_MOODS;
+        this.stateConfig = STATE_CONFIG;
 
-            this.isPlaying = false;
-            this.sessionStart = null;
-            this.sessionDuration = null;
-            this.currentState = 'intro';
-            this.currentScale = null;
-            this.currentScaleName = null;
-            this.currentMood = null;
-            this.currentBPM = null;
-            this.currentWaveform = null;
+        this.isPlaying = false;
+        this.sessionStart = null;
+        this.sessionDuration = null;
+        this.currentState = 'intro';
+        this.currentScale = null;
+        this.currentScaleName = null;
+        this.currentMood = null;
+        this.currentBPM = null;
+        this.currentWaveform = null;
 
-            this.mainLoop = null;
-            this.synthTimer = null;
-            this.fxTimer = null;
+        this.mainLoop = null;
+        this.synthTimer = null;
+        this.fxTimer = null;
 
-            this.stats = {
-                drumsPlayed: 0,
-                synthNotesPlayed: 0,
-                sequencerChanges: 0,
-                fxChanges: 0,
-                waveformChanges: 0,
-            };
-        }
+        this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0 };
 
-        start() {
-            if (this.isPlaying) {
-                console.log('n0body: already playing');
-                return;
-            }
+        // Learning system
+        this.knowledge = loadKnowledge() || initKnowledge();
+        this.shortTermMemory = new ShortTermMemory(30);
+        this.explorationRate = 0.15;
 
-            if (typeof MK1 === 'undefined') {
-                console.error('n0body: MK1 API not found. Make sure mk-1 is loaded.');
-                return;
-            }
-
-            console.log('');
-            console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
-            console.log('  n0body is going live...');
-            console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
-            console.log('');
-
-            this.isPlaying = true;
-            this.sessionStart = Date.now();
-            this.sessionDuration = randomBetween(
-                this.config.session.durationMinutes.min * 60 * 1000,
-                this.config.session.durationMinutes.max * 60 * 1000
-            );
-
-            this.stats = {
-                drumsPlayed: 0,
-                synthNotesPlayed: 0,
-                sequencerChanges: 0,
-                fxChanges: 0,
-                waveformChanges: 0,
-            };
-
-            this._initSession();
-            this._startLoops();
-
-            const durationMin = Math.round(this.sessionDuration / 1000 / 60);
-            console.log(`n0body: session duration ~${durationMin} minutes`);
-            console.log('');
-        }
-
-        stop() {
-            if (!this.isPlaying) {
-                console.log('n0body: not playing');
-                return;
-            }
-
-            console.log('');
-            console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
-            console.log('  n0body is signing off...');
-            console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
-            console.log('');
-
-            this.isPlaying = false;
-
-            if (this.mainLoop) clearInterval(this.mainLoop);
-            if (this.synthTimer) clearTimeout(this.synthTimer);
-            if (this.fxTimer) clearTimeout(this.fxTimer);
-
-            MK1.sequencer.stop();
-            MK1.synth.stop();
-
-            const elapsed = Date.now() - this.sessionStart;
-            console.log('n0body: session stats');
-            console.log(`  duration: ${formatTime(elapsed)}`);
-            console.log(`  drums: ${this.stats.drumsPlayed}`);
-            console.log(`  synth notes: ${this.stats.synthNotesPlayed}`);
-            console.log(`  sequencer changes: ${this.stats.sequencerChanges}`);
-            console.log(`  fx changes: ${this.stats.fxChanges}`);
-            console.log(`  waveform changes: ${this.stats.waveformChanges}`);
-            console.log('');
-            console.log('n0body: session ended. see you next time.');
-            console.log('');
-        }
-
-        _initSession() {
-            this.currentMood = randomFrom(['dark', 'neutral', 'bright']);
-            const scaleNames = this.scaleMoods[this.currentMood];
-            this.currentScaleName = randomFrom(scaleNames);
-            this.currentScale = this.scales[this.currentScaleName];
-            console.log(`n0body: mood=${this.currentMood}, scale=${this.currentScaleName}`);
-
-            this.currentBPM = Math.round(randomBetween(
-                this.config.tempo.bpm.min,
-                this.config.tempo.bpm.max
-            ));
-            MK1.tempo.setBPM(this.currentBPM);
-            console.log(`n0body: BPM=${this.currentBPM}`);
-
-            this.currentWaveform = randomFrom(this.config.waveforms);
-            MK1.synth.setWaveform(this.currentWaveform);
-            console.log(`n0body: waveform=${this.currentWaveform}`);
-
-            const introFx = this.stateConfig.intro.fx;
-            MK1.fx.setReverb(randomBetween(introFx.reverb.min, introFx.reverb.max));
-            MK1.fx.setDelay(randomBetween(introFx.delay.min, introFx.delay.max));
-            MK1.fx.setFilter(randomBetween(introFx.filter.min, introFx.filter.max));
-
-            MK1.master.setVolume(0.7);
-            MK1.sequencer.clearAll();
-
-            this.currentState = 'intro';
-            console.log(`n0body: state=intro`);
-        }
-
-        _startLoops() {
-            this.mainLoop = setInterval(() => this._tick(), 100);
-            this._scheduleSynth();
-            this._scheduleFxChange();
-        }
-
-        _tick() {
-            if (!this.isPlaying) return;
-
-            const elapsed = Date.now() - this.sessionStart;
-            if (elapsed >= this.sessionDuration) {
-                this.stop();
-                return;
-            }
-
-            this._updateState(elapsed);
-            this._maybePlayDrum();
-
-            if (Math.random() < 0.02) {
-                this._maybeModifySequencer();
-            }
-        }
-
-        _updateState(elapsed) {
-            const progress = elapsed / this.sessionDuration;
-            const dist = this.config.stateDistribution;
-
-            let newState;
-            let cumulative = 0;
-
-            cumulative += dist.intro;
-            if (progress < cumulative) {
-                newState = 'intro';
-            } else {
-                cumulative += dist.buildup;
-                if (progress < cumulative) {
-                    newState = 'buildup';
-                } else {
-                    cumulative += dist.peak;
-                    if (progress < cumulative) {
-                        newState = 'peak';
-                    } else {
-                        cumulative += dist.breakdown;
-                        if (progress < cumulative) {
-                            newState = 'breakdown';
-                        } else {
-                            newState = 'outro';
-                        }
-                    }
-                }
-            }
-
-            if (newState !== this.currentState) {
-                console.log(`n0body: ${this.currentState} → ${newState} (${Math.round(progress * 100)}%)`);
-                this.currentState = newState;
-                this._onStateChange(newState);
-            }
-        }
-
-        _onStateChange(newState) {
-            const stateConf = this.stateConfig[newState];
-
-            if (stateConf.sequencer.active) {
-                if (!MK1.sequencer.isPlaying()) {
-                    MK1.sequencer.start();
-                    console.log('n0body: sequencer started');
-                }
-            } else {
-                if (MK1.sequencer.isPlaying()) {
-                    MK1.sequencer.stop();
-                    console.log('n0body: sequencer stopped');
-                }
-            }
-
-            this._transitionFx(stateConf.fx);
-        }
-
-        _maybePlayDrum() {
-            const stateConf = this.stateConfig[this.currentState];
-            if (Math.random() < stateConf.drums.probability) {
-                const pad = randomFrom(stateConf.drums.pads);
-                MK1.drums.hit(pad);
-                this.stats.drumsPlayed++;
-            }
-        }
-
-        _scheduleSynth() {
-            if (!this.isPlaying) return;
-
-            const stateConf = this.stateConfig[this.currentState];
-
-            if (Math.random() < stateConf.synth.probability) {
-                const note = randomFrom(this.currentScale);
-                const duration = randomBetween(
-                    stateConf.synth.noteDuration.min,
-                    stateConf.synth.noteDuration.max
-                );
-                MK1.synth.play(note, duration);
-                this.stats.synthNotesPlayed++;
-            }
-
-            const spacing = randomBetween(
-                stateConf.synth.noteSpacing.min,
-                stateConf.synth.noteSpacing.max
-            );
-            const humanized = spacing + randomBetween(
-                -this.config.humanize.timing,
-                this.config.humanize.timing
-            );
-
-            this.synthTimer = setTimeout(() => this._scheduleSynth(), Math.max(50, humanized));
-        }
-
-        _maybeModifySequencer() {
-            const stateConf = this.stateConfig[this.currentState];
-            if (!stateConf.sequencer.active) return;
-            if (!stateConf.sequencer.tracksActive) return;
-
-            const track = randomFrom(stateConf.sequencer.tracksActive);
-            const step = randomIntBetween(1, 16);
-
-            const shouldActivate = Math.random() < stateConf.sequencer.density;
-            MK1.sequencer.setStep(track, step, shouldActivate);
-            this.stats.sequencerChanges++;
-        }
-
-        _scheduleFxChange() {
-            if (!this.isPlaying) return;
-
-            const stateConf = this.stateConfig[this.currentState];
-
-            MK1.fx.setReverb(randomBetween(stateConf.fx.reverb.min, stateConf.fx.reverb.max));
-            MK1.fx.setDelay(randomBetween(stateConf.fx.delay.min, stateConf.fx.delay.max));
-            MK1.fx.setFilter(randomBetween(stateConf.fx.filter.min, stateConf.fx.filter.max));
-            this.stats.fxChanges++;
-
-            if (Math.random() < this.config.waveformChangeChance / 60) {
-                const newWaveform = randomFrom(this.config.waveforms);
-                if (newWaveform !== this.currentWaveform) {
-                    this.currentWaveform = newWaveform;
-                    MK1.synth.setWaveform(this.currentWaveform);
-                    this.stats.waveformChanges++;
-                    console.log(`n0body: waveform → ${this.currentWaveform}`);
-                }
-            }
-
-            const nextChange = randomBetween(15000, 30000);
-            this.fxTimer = setTimeout(() => this._scheduleFxChange(), nextChange);
-        }
-
-        _transitionFx(targetFx) {
-            MK1.fx.setReverb(randomBetween(targetFx.reverb.min, targetFx.reverb.max));
-            MK1.fx.setDelay(randomBetween(targetFx.delay.min, targetFx.delay.max));
-            MK1.fx.setFilter(randomBetween(targetFx.filter.min, targetFx.filter.max));
-        }
-
-        getStatus() {
-            const elapsed = this.sessionStart ? Date.now() - this.sessionStart : 0;
-            const remaining = this.sessionDuration ? this.sessionDuration - elapsed : 0;
-            const progress = this.sessionDuration ? elapsed / this.sessionDuration : 0;
-
-            return {
-                isPlaying: this.isPlaying,
-                currentState: this.currentState,
-                progress: `${Math.round(progress * 100)}%`,
-                elapsed: formatTime(elapsed),
-                remaining: formatTime(Math.max(0, remaining)),
-                duration: formatTime(this.sessionDuration || 0),
-                mood: this.currentMood,
-                scale: this.currentScaleName,
-                bpm: this.currentBPM,
-                waveform: this.currentWaveform,
-                stats: { ...this.stats },
-            };
-        }
-
-        status() {
-            const s = this.getStatus();
-            console.log('');
-            console.log('n0body status:');
-            console.log(`  playing: ${s.isPlaying}`);
-            console.log(`  state: ${s.currentState}`);
-            console.log(`  progress: ${s.progress} (${s.elapsed} / ${s.duration})`);
-            console.log(`  remaining: ${s.remaining}`);
-            console.log(`  mood: ${s.mood}`);
-            console.log(`  scale: ${s.scale}`);
-            console.log(`  bpm: ${s.bpm}`);
-            console.log(`  waveform: ${s.waveform}`);
-            console.log('');
-            return s;
-        }
+        console.log('n0body: loaded with ' + this.knowledge.sessionsPlayed + ' sessions of experience (' + getLevel(this.knowledge.sessionsPlayed) + ')');
     }
+
+    N0body.prototype.start = function() {
+        if (this.isPlaying) return;
+        if (typeof MK1 === 'undefined') { console.error('n0body: MK1 not found'); return; }
+
+        console.log('');
+        console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
+        console.log('  n0body is going live...');
+        console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
+        console.log('');
+
+        this.isPlaying = true;
+        this.sessionStart = Date.now();
+        this.sessionDuration = randomBetween(this.config.session.durationMinutes.min * 60 * 1000, this.config.session.durationMinutes.max * 60 * 1000);
+        this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0 };
+        this.shortTermMemory.clear();
+
+        this.knowledge.sessionsPlayed++;
+
+        this._initSession();
+        this._startLoops();
+
+        console.log('n0body: session #' + this.knowledge.sessionsPlayed + ' starting');
+        console.log('n0body: level: ' + getLevel(this.knowledge.sessionsPlayed));
+        console.log('n0body: duration ~' + Math.round(this.sessionDuration / 1000 / 60) + ' minutes');
+        console.log('');
+    };
+
+    N0body.prototype.stop = function() {
+        if (!this.isPlaying) return;
+
+        console.log('');
+        console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
+        console.log('  n0body is signing off...');
+        console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
+        console.log('');
+
+        this.isPlaying = false;
+        if (this.mainLoop) clearInterval(this.mainLoop);
+        if (this.synthTimer) clearTimeout(this.synthTimer);
+        if (this.fxTimer) clearTimeout(this.fxTimer);
+        MK1.sequencer.stop();
+        MK1.synth.stop();
+
+        var elapsed = Date.now() - this.sessionStart;
+        this.knowledge.totalPlayTime += elapsed / 1000 / 60;
+
+        if (this.currentScaleName) {
+            if (!this.knowledge.scaleSuccess[this.currentScaleName]) {
+                this.knowledge.scaleSuccess[this.currentScaleName] = { sessions: 0, avgScore: 1.0 };
+            }
+            this.knowledge.scaleSuccess[this.currentScaleName].sessions++;
+        }
+
+        saveKnowledge(this.knowledge);
+
+        console.log('n0body: session stats');
+        console.log('  duration: ' + formatTime(elapsed));
+        console.log('  drums: ' + this.stats.drumsPlayed);
+        console.log('  synth notes: ' + this.stats.synthNotesPlayed);
+        console.log('  sequencer changes: ' + this.stats.sequencerChanges);
+        console.log('');
+        console.log('n0body: total experience: ' + this.knowledge.sessionsPlayed + ' sessions, ' + Math.round(this.knowledge.totalPlayTime) + ' minutes');
+        console.log('n0body: session ended. see you next time.');
+        console.log('');
+    };
+
+    N0body.prototype._learn = function(action) {
+        var contextualAction = {
+            type: action.type,
+            pad: action.pad,
+            note: action.note,
+            param: action.param,
+            value: action.value,
+            context: {
+                state: this.currentState,
+                bpm: this.currentBPM,
+                scale: this.currentScaleName,
+                mood: this.currentMood
+            }
+        };
+
+        this.shortTermMemory.add(contextualAction);
+
+        var recentActions = this.shortTermMemory.getRecent(10);
+        var reward = evaluateReward(recentActions);
+        var lr = getLearningRate(this.knowledge.sessionsPlayed);
+
+        this._updatePreferences(action, reward, lr);
+        this._learnCombos(reward, lr);
+    };
+
+    N0body.prototype._updatePreferences = function(action, reward, lr) {
+        var state = this.currentState;
+        var self = this;
+
+        if (action.type === 'drum') {
+            var current = this.knowledge.drums[state][action.pad] || 1.0;
+            var updated = current + (reward * lr);
+            this.knowledge.drums[state][action.pad] = clamp(updated, 0.1, 5.0);
+        }
+
+        if (action.type === 'synth' && action.note) {
+            var key = this.currentScaleName + '_' + state;
+            if (!this.knowledge.notes[key]) {
+                this.knowledge.notes[key] = {};
+                this.currentScale.forEach(function(note) {
+                    self.knowledge.notes[key][note] = 1.0;
+                });
+            }
+            var currentNote = this.knowledge.notes[key][action.note] || 1.0;
+            var updatedNote = currentNote + (reward * lr);
+            this.knowledge.notes[key][action.note] = clamp(updatedNote, 0.1, 5.0);
+        }
+
+        if (action.type === 'fx' && action.param && action.value !== undefined) {
+            var fxState = this.knowledge.fx[state] && this.knowledge.fx[state][action.param];
+            if (fxState && reward > 0) {
+                fxState.preferred = fxState.preferred * 0.9 + action.value * 0.1;
+            }
+        }
+    };
+
+    N0body.prototype._learnCombos = function(reward, lr) {
+        var recent = this.shortTermMemory.getRecent(3);
+        if (recent.length < 3) return;
+
+        var comboKey = recent.map(function(a) {
+            if (a.type === 'drum') return 'drum' + a.pad;
+            return a.type;
+        }).join('+');
+
+        if (!this.knowledge.combos[comboKey]) {
+            this.knowledge.combos[comboKey] = { score: 1.0, count: 0 };
+        }
+
+        var combo = this.knowledge.combos[comboKey];
+        combo.score = clamp(combo.score + (reward * lr), 0.1, 5.0);
+        combo.count++;
+    };
+
+    N0body.prototype._chooseDrumPad = function() {
+        var state = this.currentState;
+        var stateConf = this.stateConfig[state];
+        var availablePads = stateConf.drums.pads;
+
+        if (Math.random() < this.explorationRate) {
+            return randomFrom(availablePads);
+        }
+
+        var weights = {};
+        var self = this;
+        availablePads.forEach(function(pad) {
+            weights[pad] = self.knowledge.drums[state][pad] || 1.0;
+        });
+
+        return weightedChoice(weights);
+    };
+
+    N0body.prototype._chooseSynthNote = function() {
+        var key = this.currentScaleName + '_' + this.currentState;
+        var weights = this.knowledge.notes[key];
+
+        if (!weights || Object.keys(weights).length === 0) {
+            return randomFrom(this.currentScale);
+        }
+
+        if (Math.random() < this.explorationRate) {
+            return randomFrom(this.currentScale);
+        }
+
+        return weightedChoice(weights);
+    };
+
+    N0body.prototype._chooseFxValue = function(param) {
+        var state = this.currentState;
+        var fxPref = this.knowledge.fx[state] && this.knowledge.fx[state][param];
+
+        if (!fxPref) {
+            var range = this.stateConfig[state].fx[param];
+            return randomBetween(range.min, range.max);
+        }
+
+        var value = fxPref.preferred + (Math.random() - 0.5) * fxPref.variance * 2;
+        return clamp(value, 0, 1);
+    };
+
+    N0body.prototype._chooseBPM = function() {
+        var bpmPref = this.knowledge.bpmPreference[this.currentMood];
+
+        if (!bpmPref) {
+            return Math.round(randomBetween(this.config.tempo.bpm.min, this.config.tempo.bpm.max));
+        }
+
+        var bpm = bpmPref.preferred + (Math.random() - 0.5) * bpmPref.variance * 2;
+        return Math.round(clamp(bpm, this.config.tempo.bpm.min, this.config.tempo.bpm.max));
+    };
+
+    N0body.prototype._initSession = function() {
+        this.currentMood = randomFrom(['dark', 'neutral', 'bright']);
+        var scaleNames = this.scaleMoods[this.currentMood];
+
+        var scaleWeights = {};
+        var self = this;
+        scaleNames.forEach(function(name) {
+            var success = self.knowledge.scaleSuccess[name];
+            scaleWeights[name] = success ? success.avgScore : 1.0;
+        });
+
+        this.currentScaleName = weightedChoice(scaleWeights);
+        this.currentScale = this.scales[this.currentScaleName];
+        console.log('n0body: mood=' + this.currentMood + ', scale=' + this.currentScaleName);
+
+        this.currentBPM = this._chooseBPM();
+        MK1.tempo.setBPM(this.currentBPM);
+        console.log('n0body: BPM=' + this.currentBPM);
+
+        this.currentWaveform = randomFrom(this.config.waveforms);
+        MK1.synth.setWaveform(this.currentWaveform);
+        console.log('n0body: waveform=' + this.currentWaveform);
+
+        MK1.fx.setReverb(this._chooseFxValue('reverb'));
+        MK1.fx.setDelay(this._chooseFxValue('delay'));
+        MK1.fx.setFilter(this._chooseFxValue('filter'));
+
+        MK1.master.setVolume(0.7);
+        MK1.sequencer.clearAll();
+        this.currentState = 'intro';
+        console.log('n0body: state=intro');
+    };
+
+    N0body.prototype._startLoops = function() {
+        var self = this;
+        this.mainLoop = setInterval(function() { self._tick(); }, 100);
+        this._scheduleSynth();
+        this._scheduleFxChange();
+    };
+
+    N0body.prototype._tick = function() {
+        if (!this.isPlaying) return;
+        var elapsed = Date.now() - this.sessionStart;
+        if (elapsed >= this.sessionDuration) { this.stop(); return; }
+        this._updateState(elapsed);
+        this._maybePlayDrum();
+        if (Math.random() < 0.02) this._maybeModifySequencer();
+    };
+
+    N0body.prototype._updateState = function(elapsed) {
+        var progress = elapsed / this.sessionDuration;
+        var dist = this.config.stateDistribution;
+        var newState, cumulative = 0;
+
+        cumulative += dist.intro;
+        if (progress < cumulative) newState = 'intro';
+        else { cumulative += dist.buildup; if (progress < cumulative) newState = 'buildup';
+        else { cumulative += dist.peak; if (progress < cumulative) newState = 'peak';
+        else { cumulative += dist.breakdown; if (progress < cumulative) newState = 'breakdown';
+        else newState = 'outro'; }}}
+
+        if (newState !== this.currentState) {
+            console.log('n0body: ' + this.currentState + ' → ' + newState + ' (' + Math.round(progress * 100) + '%)');
+            this.currentState = newState;
+            this._onStateChange(newState);
+        }
+    };
+
+    N0body.prototype._onStateChange = function(newState) {
+        var stateConf = this.stateConfig[newState];
+        if (stateConf.sequencer.active) {
+            if (!MK1.sequencer.isPlaying()) {
+                MK1.sequencer.start();
+                console.log('n0body: sequencer started');
+            }
+        } else {
+            if (MK1.sequencer.isPlaying()) {
+                MK1.sequencer.stop();
+                console.log('n0body: sequencer stopped');
+            }
+        }
+        this._transitionFx();
+    };
+
+    N0body.prototype._maybePlayDrum = function() {
+        var stateConf = this.stateConfig[this.currentState];
+        if (Math.random() < stateConf.drums.probability) {
+            var pad = this._chooseDrumPad();
+            MK1.drums.hit(pad);
+            this.stats.drumsPlayed++;
+            this._learn({ type: 'drum', pad: pad });
+        }
+    };
+
+    N0body.prototype._scheduleSynth = function() {
+        if (!this.isPlaying) return;
+        var self = this;
+        var stateConf = this.stateConfig[this.currentState];
+
+        if (Math.random() < stateConf.synth.probability) {
+            var note = this._chooseSynthNote();
+            var duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
+            MK1.synth.play(note, duration);
+            this.stats.synthNotesPlayed++;
+            this._learn({ type: 'synth', note: note });
+        }
+
+        var spacing = randomBetween(stateConf.synth.noteSpacing.min, stateConf.synth.noteSpacing.max);
+        var humanized = spacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
+        this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(50, humanized));
+    };
+
+    N0body.prototype._maybeModifySequencer = function() {
+        var stateConf = this.stateConfig[this.currentState];
+        if (!stateConf.sequencer.active || !stateConf.sequencer.tracksActive) return;
+
+        var track = randomFrom(stateConf.sequencer.tracksActive);
+        var step = randomIntBetween(1, 16);
+        var shouldActivate = Math.random() < stateConf.sequencer.density;
+        MK1.sequencer.setStep(track, step, shouldActivate);
+        this.stats.sequencerChanges++;
+        this._learn({ type: 'sequencer' });
+    };
+
+    N0body.prototype._scheduleFxChange = function() {
+        if (!this.isPlaying) return;
+        var self = this;
+
+        var reverbValue = this._chooseFxValue('reverb');
+        var delayValue = this._chooseFxValue('delay');
+        var filterValue = this._chooseFxValue('filter');
+
+        MK1.fx.setReverb(reverbValue);
+        MK1.fx.setDelay(delayValue);
+        MK1.fx.setFilter(filterValue);
+        this.stats.fxChanges++;
+
+        this._learn({ type: 'fx', param: 'reverb', value: reverbValue });
+        this._learn({ type: 'fx', param: 'delay', value: delayValue });
+        this._learn({ type: 'fx', param: 'filter', value: filterValue });
+
+        if (Math.random() < this.config.waveformChangeChance / 60) {
+            var newWaveform = randomFrom(this.config.waveforms);
+            if (newWaveform !== this.currentWaveform) {
+                this.currentWaveform = newWaveform;
+                MK1.synth.setWaveform(this.currentWaveform);
+                this.stats.waveformChanges++;
+                console.log('n0body: waveform → ' + this.currentWaveform);
+            }
+        }
+
+        var nextChange = randomBetween(15000, 30000);
+        this.fxTimer = setTimeout(function() { self._scheduleFxChange(); }, nextChange);
+    };
+
+    N0body.prototype._transitionFx = function() {
+        MK1.fx.setReverb(this._chooseFxValue('reverb'));
+        MK1.fx.setDelay(this._chooseFxValue('delay'));
+        MK1.fx.setFilter(this._chooseFxValue('filter'));
+    };
+
+    N0body.prototype.getStatus = function() {
+        var elapsed = this.sessionStart ? Date.now() - this.sessionStart : 0;
+        var remaining = this.sessionDuration ? this.sessionDuration - elapsed : 0;
+        var progress = this.sessionDuration ? elapsed / this.sessionDuration : 0;
+
+        return {
+            isPlaying: this.isPlaying,
+            currentState: this.currentState,
+            progress: Math.round(progress * 100) + '%',
+            elapsed: formatTime(elapsed),
+            remaining: formatTime(Math.max(0, remaining)),
+            duration: formatTime(this.sessionDuration || 0),
+            mood: this.currentMood,
+            scale: this.currentScaleName,
+            bpm: this.currentBPM,
+            waveform: this.currentWaveform,
+            stats: {
+                drumsPlayed: this.stats.drumsPlayed,
+                synthNotesPlayed: this.stats.synthNotesPlayed,
+                sequencerChanges: this.stats.sequencerChanges,
+                fxChanges: this.stats.fxChanges,
+                waveformChanges: this.stats.waveformChanges
+            },
+            experience: {
+                sessions: this.knowledge.sessionsPlayed,
+                totalMinutes: Math.round(this.knowledge.totalPlayTime),
+                level: getLevel(this.knowledge.sessionsPlayed)
+            }
+        };
+    };
+
+    N0body.prototype.status = function() {
+        var s = this.getStatus();
+        console.log('');
+        console.log('n0body status:');
+        console.log('  playing: ' + s.isPlaying);
+        console.log('  state: ' + s.currentState);
+        console.log('  progress: ' + s.progress + ' (' + s.elapsed + ' / ' + s.duration + ')');
+        console.log('  mood: ' + s.mood);
+        console.log('  scale: ' + s.scale);
+        console.log('  bpm: ' + s.bpm);
+        console.log('  experience: ' + s.experience.sessions + ' sessions, ' + s.experience.totalMinutes + ' min (' + s.experience.level + ')');
+        console.log('');
+        return s;
+    };
+
+    N0body.prototype.reset = function() {
+        resetKnowledge();
+        this.knowledge = initKnowledge();
+        this.shortTermMemory.clear();
+        console.log('n0body: reset to newborn state');
+    };
+
+    N0body.prototype.getKnowledge = function() {
+        return this.knowledge;
+    };
 
     // ========== INITIALIZATION ==========
 
@@ -533,12 +767,13 @@
 
         console.log('');
         console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
-        console.log('  n0body loaded');
+        console.log('  n0body v2.0 — with learning');
         console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
         console.log('');
         console.log('  n0body.start()   — begin session');
         console.log('  n0body.stop()    — end session');
         console.log('  n0body.status()  — current state');
+        console.log('  n0body.reset()   — forget everything');
         console.log('');
         console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
         console.log('');
