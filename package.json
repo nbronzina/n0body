@@ -1,0 +1,28 @@
+{
+  "name": "n0body",
+  "version": "1.0.0",
+  "description": "The first non-human performer of Playground",
+  "main": "src/brain.js",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'Manual bundle in dist/n0body.js'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nbronzina/n0body.git"
+  },
+  "keywords": [
+    "music",
+    "generative",
+    "autonomous",
+    "performance",
+    "playground",
+    "mk-1"
+  ],
+  "author": "Playground",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nbronzina/n0body/issues"
+  },
+  "homepage": "https://github.com/nbronzina/n0body#readme"
+}

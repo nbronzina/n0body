@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>n0body</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: #fff;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 600px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 4rem;
+            font-weight: 400;
+            letter-spacing: 0.2em;
+            margin-bottom: 2rem;
+        }
+
+        .tagline {
+            font-size: 0.875rem;
+            color: #666;
+            margin-bottom: 3rem;
+            letter-spacing: 0.1em;
+        }
+
+        .instructions {
+            text-align: left;
+            background: #111;
+            padding: 1.5rem;
+            border-radius: 4px;
+            margin-bottom: 2rem;
+        }
+
+        .instructions h2 {
+            font-size: 0.75rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+        }
+
+        .instructions ol {
+            list-style-position: inside;
+            font-size: 0.875rem;
+            line-height: 1.8;
+            color: #999;
+        }
+
+        .instructions a {
+            color: #fff;
+            text-decoration: underline;
+        }
+
+        .instructions code {
+            background: #222;
+            padding: 0.2em 0.4em;
+            border-radius: 2px;
+            font-size: 0.8em;
+        }
+
+        .commands {
+            text-align: left;
+            font-size: 0.875rem;
+            color: #666;
+        }
+
+        .commands code {
+            color: #fff;
+            display: block;
+            margin: 0.5rem 0;
+            font-size: 1rem;
+        }
+
+        footer {
+            position: fixed;
+            bottom: 1rem;
+            font-size: 0.75rem;
+            color: #333;
+        }
+
+        footer a {
+            color: #444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>n0body</h1>
+        <p class="tagline">the first non-human performer of Playground</p>
+
+        <div class="instructions">
+            <h2>How to run</h2>
+            <ol>
+                <li>Open <a href="https://nbronzina.github.io/playground/mk-1.html" target="_blank">mk-1</a></li>
+                <li>Open browser console (F12)</li>
+                <li>Paste the contents of <code>dist/n0body.js</code></li>
+                <li>Run the start command</li>
+            </ol>
+        </div>
+
+        <div class="commands">
+            Commands:
+            <code>n0body.start()</code>
+            <code>n0body.stop()</code>
+            <code>n0body.status()</code>
+        </div>
+    </div>
+
+    <footer>
+        <a href="https://github.com/nbronzina/n0body" target="_blank">github.com/nbronzina/n0body</a>
+    </footer>
+</body>
+</html>
