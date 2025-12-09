@@ -298,15 +298,38 @@
         neutral: ['cMinorPentatonic', 'aMinorPentatonic', 'dDorian'],
     };
 
+    // Related scales for mid-session modulation
+    var RELATED_SCALES = {
+        aMinor: ['cMajor', 'dMinor', 'aMinorPentatonic', 'dDorian'],
+        cMinor: ['cMinorPentatonic', 'dDorian', 'aPhrygian'],
+        dMinor: ['aMinor', 'dDorian', 'cMajor'],
+        cMajor: ['aMinor', 'gMajor', 'cMinorPentatonic'],
+        gMajor: ['cMajor', 'aMinor'],
+        aMinorPentatonic: ['aMinor', 'cMinorPentatonic'],
+        cMinorPentatonic: ['cMinor', 'aMinorPentatonic'],
+        dDorian: ['aMinor', 'dMinor', 'cMajor'],
+        aPhrygian: ['cMinor', 'dMinor'],
+    };
+
     // ========== CONFIG v3.2 ==========
     var CONFIG = {
         session: { transitionCheckInterval: 10 },
-        tempo: { bpm: { min: 70, max: 130 } },
+        tempo: { bpm: { min: 70, max: 140 } },
         waveforms: ['sine', 'square', 'saw', 'triangle', 'pulse'],
         waveformChangeChance: 0.1,
         humanize: { timing: 50 },
         outro: { minDuration: 30, maxDuration: 60 },
         fxChangeInterval: { min: 45000, max: 90000 },
+        // BPM change probability per minute by state
+        bpmChangeChance: {
+            intro: 0,
+            buildup: 0.1,
+            peak: 0.15,
+            breakdown: 0.1,
+            outro: 0,
+        },
+        // Scale change probability on state transitions
+        scaleChangeChance: 0.2,
     };
 
     // State transitions (organic, probability-based) - faster settling
@@ -585,6 +608,10 @@
             }
         });
 
+        // Learn mid-session changes
+        this._learnBPMChanges(sessionReward);
+        this._learnScaleChanges(sessionReward);
+
         // Update meta stats
         var elapsed = Date.now() - this.sessionStart;
         this.knowledge.totalPlayTime += elapsed / 1000 / 60;
@@ -600,6 +627,8 @@
             scale: this.currentScaleName,
             bpm: this.currentBPM,
             transitions: this.stats.stateTransitions,
+            bpmChanges: this.bpmChangesThisSession || 0,
+            scaleChanges: this.scaleChangesThisSession || 0,
         });
         if (this.knowledge.sessionHistory.length > 50) {
             this.knowledge.sessionHistory.shift();
@@ -865,6 +894,12 @@
         this.sessionEnergy = { intro: 0, buildup: 0, peak: 0, breakdown: 0, outro: 0 };
         this.stateTimeSpent = { intro: 0, buildup: 0, peak: 0, breakdown: 0, outro: 0 };
 
+        // Mid-session change tracking
+        this.bpmChangesThisSession = 0;
+        this.scaleChangesThisSession = 0;
+        this.lastBPMChangeTime = 0;
+        this.previousState = null;
+
         this._applyAllFx();
         MK1.master.setVolume(0.7);
         MK1.sequencer.clearAll();
@@ -975,6 +1010,53 @@
         }
     };
 
+    // ========== LEARNING: MID-SESSION CHANGES ==========
+    N0body.prototype._learnBPMChanges = function(sessionReward) {
+        if (!this.pendingBPMChange || this.pendingBPMChange.length === 0) return;
+
+        if (!this.knowledge.bpmChanges) {
+            this.knowledge.bpmChanges = {};
+        }
+
+        var self = this;
+        this.pendingBPMChange.forEach(function(change) {
+            var key = 'bpm_' + change.direction + '_' + change.state;
+
+            if (!self.knowledge.bpmChanges[key]) {
+                self.knowledge.bpmChanges[key] = { count: 0, avgReward: 1.0 };
+            }
+
+            var entry = self.knowledge.bpmChanges[key];
+            entry.avgReward = (entry.avgReward * entry.count + sessionReward) / (entry.count + 1);
+            entry.count++;
+        });
+
+        this.pendingBPMChange = [];
+    };
+
+    N0body.prototype._learnScaleChanges = function(sessionReward) {
+        if (!this.pendingScaleChange || this.pendingScaleChange.length === 0) return;
+
+        if (!this.knowledge.scaleChanges) {
+            this.knowledge.scaleChanges = {};
+        }
+
+        var self = this;
+        this.pendingScaleChange.forEach(function(change) {
+            var key = change.oldScale + '_to_' + change.newScale;
+
+            if (!self.knowledge.scaleChanges[key]) {
+                self.knowledge.scaleChanges[key] = { count: 0, avgReward: 1.0 };
+            }
+
+            var entry = self.knowledge.scaleChanges[key];
+            entry.avgReward = (entry.avgReward * entry.count + sessionReward) / (entry.count + 1);
+            entry.count++;
+        });
+
+        this.pendingScaleChange = [];
+    };
+
     // ========== ENERGY TRACKING ==========
     N0body.prototype._trackEnergy = function(actionType) {
         if (!this.sessionEnergy) return;
@@ -1062,15 +1144,149 @@
         }
 
         this._maybePlayDrum();
+        this._maybeChangeBPM();
         if (Math.random() < 0.015) this._maybeModifySequencer();
         this._maybeUseLooper();
     };
 
     N0body.prototype._onStateChange = function(newState) {
+        // Maybe change scale on certain transitions
+        this._maybeChangeScale(newState);
+
         var stateConf = this.stateConfig[newState];
         if (stateConf.sequencer.active) { if (!MK1.sequencer.isPlaying()) MK1.sequencer.start(); }
         else { if (MK1.sequencer.isPlaying()) MK1.sequencer.stop(); }
         this._applyAllFx();
+
+        this.previousState = this.currentState;
+    };
+
+    // ========== MID-SESSION BPM CHANGES ==========
+    N0body.prototype._maybeChangeBPM = function() {
+        var state = this.currentState;
+        var chance = this.config.bpmChangeChance[state];
+
+        if (!chance || chance === 0) return;
+
+        // Minimum 30 seconds between BPM changes
+        if (Date.now() - this.lastBPMChangeTime < 30000) return;
+
+        // Convert chance per minute to per-tick (tick is ~100ms)
+        if (Math.random() > chance / 600) return;
+
+        var currentBPM = this.currentBPM;
+
+        // Direction based on state energy and learning
+        var directionWeights = { up: 0.4, down: 0.4, stay: 0.2 };
+
+        // Adjust based on learned preferences
+        if (this.knowledge.bpmChanges) {
+            var upKey = 'bpm_up_' + state;
+            var downKey = 'bpm_down_' + state;
+            var upLearned = this.knowledge.bpmChanges[upKey];
+            var downLearned = this.knowledge.bpmChanges[downKey];
+
+            if (upLearned && upLearned.count > 3) {
+                directionWeights.up *= Math.pow(upLearned.avgReward, 0.5);
+            }
+            if (downLearned && downLearned.count > 3) {
+                directionWeights.down *= Math.pow(downLearned.avgReward, 0.5);
+            }
+        }
+
+        var direction = weightedChoice(directionWeights);
+        if (direction === 'stay') return;
+
+        // Gradual change: 1-4 BPM
+        var change = randomBetween(1, 4);
+        var newBPM = direction === 'up'
+            ? Math.min(this.config.tempo.bpm.max, currentBPM + change)
+            : Math.max(this.config.tempo.bpm.min, currentBPM - change);
+
+        if (newBPM !== currentBPM) {
+            this._transitionBPM(currentBPM, newBPM, 4000);
+            console.log('n0body: BPM ' + currentBPM + ' -> ' + newBPM);
+            this.bpmChangesThisSession++;
+            this.lastBPMChangeTime = Date.now();
+
+            // Store for learning at session end
+            if (!this.pendingBPMChange) this.pendingBPMChange = [];
+            this.pendingBPMChange.push({
+                oldBPM: currentBPM,
+                newBPM: newBPM,
+                state: state,
+                direction: direction,
+                timestamp: Date.now()
+            });
+        }
+    };
+
+    N0body.prototype._transitionBPM = function(from, to, duration) {
+        var self = this;
+        var steps = 20;
+        var stepDuration = duration / steps;
+        var stepSize = (to - from) / steps;
+
+        var current = from;
+        var step = 0;
+
+        var interval = setInterval(function() {
+            step++;
+            current += stepSize;
+            MK1.tempo.setBPM(Math.round(current));
+
+            if (step >= steps) {
+                clearInterval(interval);
+                self.currentBPM = to;
+            }
+        }, stepDuration);
+    };
+
+    // ========== MID-SESSION SCALE CHANGES ==========
+    N0body.prototype._maybeChangeScale = function(newState) {
+        if (!this.previousState) return;
+
+        // Only on certain transitions
+        var validTransitions = ['intro_to_buildup', 'breakdown_to_buildup', 'breakdown_to_intro'];
+        var transition = this.previousState + '_to_' + newState;
+
+        if (validTransitions.indexOf(transition) === -1) return;
+
+        // Check probability
+        if (Math.random() > this.config.scaleChangeChance) return;
+
+        // Get related scales
+        var related = RELATED_SCALES[this.currentScaleName];
+        if (!related || related.length === 0) return;
+
+        // Weight by learned preferences
+        var weightedRelated = {};
+        var self = this;
+        related.forEach(function(scale) {
+            var scalePref = self.knowledge.scales && self.knowledge.scales[scale];
+            weightedRelated[scale] = scalePref ? scalePref.weight : 1.0;
+        });
+
+        var newScale = weightedChoice(weightedRelated);
+
+        if (newScale && newScale !== this.currentScaleName) {
+            var oldScale = this.currentScaleName;
+            console.log('n0body: scale ' + oldScale + ' -> ' + newScale);
+
+            this.currentScaleName = newScale;
+            this.currentScale = SCALES[newScale];
+            this.lastNote = null;  // Reset for new scale
+            this.scaleChangesThisSession++;
+
+            // Store for learning at session end
+            if (!this.pendingScaleChange) this.pendingScaleChange = [];
+            this.pendingScaleChange.push({
+                oldScale: oldScale,
+                newScale: newScale,
+                transition: transition,
+                timestamp: Date.now()
+            });
+        }
     };
 
     N0body.prototype._maybePlayDrum = function() {
@@ -1268,6 +1484,8 @@
             bpm: this.currentBPM,
             waveform: this.currentWaveform,
             stats: this.stats,
+            bpmChanges: this.bpmChangesThisSession || 0,
+            scaleChanges: this.scaleChangesThisSession || 0,
             experience: { sessions: this.knowledge.sessionsPlayed, totalMinutes: Math.round(this.knowledge.totalPlayTime), level: getLevel(this.knowledge.sessionsPlayed) }
         };
     };
