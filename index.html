@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>n0body</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -11,122 +14,656 @@
             box-sizing: border-box;
         }
 
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
         body {
             background: #000;
             color: #fff;
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-            min-height: 100vh;
+            font-family: 'JetBrains Mono', monospace;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ========== HEADER ========== */
+
+        .header {
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #222;
+            flex-shrink: 0;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+        }
+
+        .controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 0.5rem 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: lowercase;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+
+        .btn:hover:not(:disabled) {
+            opacity: 0.85;
+        }
+
+        .btn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .btn--stop {
+            background: transparent;
+            color: #fff;
+            border: 1px solid #444;
+        }
+
+        .btn--stop:hover:not(:disabled) {
+            border-color: #666;
+        }
+
+        .btn--stop:disabled {
+            background: transparent;
+            border-color: #222;
+            color: #444;
+        }
+
+        /* ========== STATUS ========== */
+
+        .status-bar {
+            padding: 0.75rem 1.5rem;
+            background: #0a0a0a;
+            border-bottom: 1px solid #222;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 2rem;
+            font-size: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        .status-item {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .status-label {
+            color: #555;
+        }
+
+        .status-value {
+            color: #888;
+        }
+
+        .status-value--active {
+            color: #fff;
+        }
+
+        .status-value--playing {
+            color: #0f0;
+        }
+
+        /* ========== IFRAME CONTAINER ========== */
+
+        .iframe-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .iframe-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* ========== LOADING / ERROR STATES ========== */
+
+        .overlay {
+            position: absolute;
+            inset: 0;
+            background: #000;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 2rem;
+            gap: 1rem;
+            z-index: 10;
         }
 
-        .container {
-            max-width: 600px;
+        .overlay--hidden {
+            display: none;
+        }
+
+        .loading-text {
+            font-size: 0.875rem;
+            color: #666;
+        }
+
+        .error-text {
+            font-size: 0.875rem;
+            color: #ff4444;
             text-align: center;
+            max-width: 400px;
+            line-height: 1.6;
         }
 
-        h1 {
-            font-size: 4rem;
-            font-weight: 400;
-            letter-spacing: 0.2em;
-            margin-bottom: 2rem;
-        }
-
-        .tagline {
-            font-size: 0.875rem;
-            color: #666;
-            margin-bottom: 3rem;
-            letter-spacing: 0.1em;
-        }
-
-        .instructions {
-            text-align: left;
-            background: #111;
-            padding: 1.5rem;
-            border-radius: 4px;
-            margin-bottom: 2rem;
-        }
-
-        .instructions h2 {
-            font-size: 0.75rem;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            margin-bottom: 1rem;
-        }
-
-        .instructions ol {
-            list-style-position: inside;
-            font-size: 0.875rem;
-            line-height: 1.8;
-            color: #999;
-        }
-
-        .instructions a {
+        .error-text a {
             color: #fff;
-            text-decoration: underline;
         }
 
-        .instructions code {
-            background: #222;
-            padding: 0.2em 0.4em;
-            border-radius: 2px;
-            font-size: 0.8em;
-        }
+        /* ========== RESPONSIVE ========== */
 
-        .commands {
-            text-align: left;
-            font-size: 0.875rem;
-            color: #666;
-        }
+        @media (max-width: 600px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: flex-start;
+            }
 
-        .commands code {
-            color: #fff;
-            display: block;
-            margin: 0.5rem 0;
-            font-size: 1rem;
-        }
+            .header-left {
+                width: 100%;
+                justify-content: space-between;
+            }
 
-        footer {
-            position: fixed;
-            bottom: 1rem;
-            font-size: 0.75rem;
-            color: #333;
-        }
-
-        footer a {
-            color: #444;
+            .status-bar {
+                gap: 0.25rem 1rem;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>n0body</h1>
-        <p class="tagline">the first non-human performer of Playground</p>
-
-        <div class="instructions">
-            <h2>How to run</h2>
-            <ol>
-                <li>Open <a href="https://nbronzina.github.io/playground/mk-1.html" target="_blank">mk-1</a></li>
-                <li>Open browser console (F12)</li>
-                <li>Paste the contents of <code>dist/n0body.js</code></li>
-                <li>Run the start command</li>
-            </ol>
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">n0body</div>
+            <div class="controls">
+                <button class="btn" id="startBtn" disabled>start</button>
+                <button class="btn btn--stop" id="stopBtn" disabled>stop</button>
+            </div>
         </div>
+    </header>
 
-        <div class="commands">
-            Commands:
-            <code>n0body.start()</code>
-            <code>n0body.stop()</code>
-            <code>n0body.status()</code>
+    <div class="status-bar">
+        <div class="status-item">
+            <span class="status-label">status:</span>
+            <span class="status-value" id="statusValue">loading</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">state:</span>
+            <span class="status-value" id="stateValue">—</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">elapsed:</span>
+            <span class="status-value" id="elapsedValue">—</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">scale:</span>
+            <span class="status-value" id="scaleValue">—</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">bpm:</span>
+            <span class="status-value" id="bpmValue">—</span>
         </div>
     </div>
 
-    <footer>
-        <a href="https://github.com/nbronzina/n0body" target="_blank">github.com/nbronzina/n0body</a>
-    </footer>
+    <div class="iframe-container">
+        <div class="overlay" id="loadingOverlay">
+            <div class="loading-text">loading mk-1...</div>
+        </div>
+        <div class="overlay overlay--hidden" id="errorOverlay">
+            <div class="error-text" id="errorText"></div>
+        </div>
+        <iframe
+            id="mk1Frame"
+            src="https://nbronzina.github.io/playground/mk-1.html"
+            allow="autoplay"
+        ></iframe>
+    </div>
+
+    <script>
+        // ========== N0BODY BRAIN (inline) ==========
+        const N0BODY_BRAIN = `
+(function() {
+    'use strict';
+
+    const SCALES = {
+        cMinor: ['C3', 'D3', 'Eb3', 'F3', 'G3', 'Ab3', 'Bb3', 'C4', 'D4', 'Eb4', 'F4', 'G4'],
+        aMinor: ['A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4'],
+        dMinor: ['D3', 'E3', 'F3', 'G3', 'A3', 'Bb3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4'],
+        cMajor: ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4'],
+        gMajor: ['G2', 'A2', 'B2', 'C3', 'D3', 'E3', 'F#3', 'G3', 'A3', 'B3', 'C4', 'D4'],
+        cMinorPentatonic: ['C3', 'Eb3', 'F3', 'G3', 'Bb3', 'C4', 'Eb4', 'F4', 'G4', 'Bb4'],
+        aMinorPentatonic: ['A2', 'C3', 'D3', 'E3', 'G3', 'A3', 'C4', 'D4', 'E4', 'G4'],
+        dDorian: ['D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4'],
+        aPhrygian: ['A2', 'Bb2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'Bb3', 'C4', 'D4', 'E4'],
+    };
+
+    const SCALE_MOODS = {
+        dark: ['cMinor', 'aMinor', 'dMinor', 'aPhrygian'],
+        bright: ['cMajor', 'gMajor'],
+        neutral: ['cMinorPentatonic', 'aMinorPentatonic', 'dDorian'],
+    };
+
+    const CONFIG = {
+        session: { durationMinutes: { min: 15, max: 45 } },
+        tempo: { bpm: { min: 70, max: 130 } },
+        stateDistribution: { intro: 0.08, buildup: 0.30, peak: 0.30, breakdown: 0.20, outro: 0.12 },
+        waveforms: ['sine', 'square', 'saw', 'triangle'],
+        waveformChangeChance: 0.3,
+        humanize: { timing: 50 },
+    };
+
+    const STATE_CONFIG = {
+        intro: {
+            drums: { probability: 0.05, pads: [1, 2] },
+            synth: { probability: 0.15, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 2000, max: 5000 } },
+            sequencer: { active: false },
+            fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 } },
+        },
+        buildup: {
+            drums: { probability: 0.2, pads: [1, 2, 3, 5] },
+            synth: { probability: 0.35, noteDuration: { min: 0.2, max: 1 }, noteSpacing: { min: 800, max: 2500 } },
+            sequencer: { active: true, density: 0.2, tracksActive: [1, 2] },
+            fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.2, max: 0.4 }, filter: { min: 0.5, max: 0.7 } },
+        },
+        peak: {
+            drums: { probability: 0.4, pads: [1, 2, 3, 4, 5, 6, 7, 8] },
+            synth: { probability: 0.5, noteDuration: { min: 0.1, max: 0.8 }, noteSpacing: { min: 300, max: 1200 } },
+            sequencer: { active: true, density: 0.5, tracksActive: [1, 2, 3, 4, 5, 6] },
+            fx: { reverb: { min: 0.5, max: 0.8 }, delay: { min: 0.3, max: 0.6 }, filter: { min: 0.6, max: 0.9 } },
+        },
+        breakdown: {
+            drums: { probability: 0.15, pads: [1, 2, 5] },
+            synth: { probability: 0.25, noteDuration: { min: 0.3, max: 1.5 }, noteSpacing: { min: 1500, max: 4000 } },
+            sequencer: { active: true, density: 0.15, tracksActive: [1, 2] },
+            fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.1, max: 0.3 }, filter: { min: 0.3, max: 0.5 } },
+        },
+        outro: {
+            drums: { probability: 0.03, pads: [1] },
+            synth: { probability: 0.1, noteDuration: { min: 1, max: 3 }, noteSpacing: { min: 3000, max: 8000 } },
+            sequencer: { active: false },
+            fx: { reverb: { min: 0.6, max: 0.8 }, delay: { min: 0, max: 0.1 }, filter: { min: 0.2, max: 0.4 } },
+        },
+    };
+
+    function randomBetween(min, max) { return Math.random() * (max - min) + min; }
+    function randomIntBetween(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+    function randomFrom(array) { return array[Math.floor(Math.random() * array.length)]; }
+    function formatTime(ms) {
+        const totalSeconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return minutes + ':' + seconds.toString().padStart(2, '0');
+    }
+
+    class N0body {
+        constructor() {
+            this.config = CONFIG;
+            this.scales = SCALES;
+            this.scaleMoods = SCALE_MOODS;
+            this.stateConfig = STATE_CONFIG;
+            this.isPlaying = false;
+            this.sessionStart = null;
+            this.sessionDuration = null;
+            this.currentState = 'intro';
+            this.currentScale = null;
+            this.currentScaleName = null;
+            this.currentMood = null;
+            this.currentBPM = null;
+            this.currentWaveform = null;
+            this.mainLoop = null;
+            this.synthTimer = null;
+            this.fxTimer = null;
+            this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0 };
+        }
+
+        start() {
+            if (this.isPlaying) return;
+            if (typeof MK1 === 'undefined') { console.error('n0body: MK1 not found'); return; }
+            this.isPlaying = true;
+            this.sessionStart = Date.now();
+            this.sessionDuration = randomBetween(this.config.session.durationMinutes.min * 60 * 1000, this.config.session.durationMinutes.max * 60 * 1000);
+            this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0 };
+            this._initSession();
+            this._startLoops();
+            console.log('n0body: started');
+        }
+
+        stop() {
+            if (!this.isPlaying) return;
+            this.isPlaying = false;
+            if (this.mainLoop) clearInterval(this.mainLoop);
+            if (this.synthTimer) clearTimeout(this.synthTimer);
+            if (this.fxTimer) clearTimeout(this.fxTimer);
+            MK1.sequencer.stop();
+            MK1.synth.stop();
+            console.log('n0body: stopped');
+        }
+
+        _initSession() {
+            this.currentMood = randomFrom(['dark', 'neutral', 'bright']);
+            const scaleNames = this.scaleMoods[this.currentMood];
+            this.currentScaleName = randomFrom(scaleNames);
+            this.currentScale = this.scales[this.currentScaleName];
+            this.currentBPM = Math.round(randomBetween(this.config.tempo.bpm.min, this.config.tempo.bpm.max));
+            MK1.tempo.setBPM(this.currentBPM);
+            this.currentWaveform = randomFrom(this.config.waveforms);
+            MK1.synth.setWaveform(this.currentWaveform);
+            const introFx = this.stateConfig.intro.fx;
+            MK1.fx.setReverb(randomBetween(introFx.reverb.min, introFx.reverb.max));
+            MK1.fx.setDelay(randomBetween(introFx.delay.min, introFx.delay.max));
+            MK1.fx.setFilter(randomBetween(introFx.filter.min, introFx.filter.max));
+            MK1.master.setVolume(0.7);
+            MK1.sequencer.clearAll();
+            this.currentState = 'intro';
+        }
+
+        _startLoops() {
+            this.mainLoop = setInterval(() => this._tick(), 100);
+            this._scheduleSynth();
+            this._scheduleFxChange();
+        }
+
+        _tick() {
+            if (!this.isPlaying) return;
+            const elapsed = Date.now() - this.sessionStart;
+            if (elapsed >= this.sessionDuration) { this.stop(); return; }
+            this._updateState(elapsed);
+            this._maybePlayDrum();
+            if (Math.random() < 0.02) this._maybeModifySequencer();
+        }
+
+        _updateState(elapsed) {
+            const progress = elapsed / this.sessionDuration;
+            const dist = this.config.stateDistribution;
+            let newState, cumulative = 0;
+            cumulative += dist.intro;
+            if (progress < cumulative) newState = 'intro';
+            else { cumulative += dist.buildup; if (progress < cumulative) newState = 'buildup';
+            else { cumulative += dist.peak; if (progress < cumulative) newState = 'peak';
+            else { cumulative += dist.breakdown; if (progress < cumulative) newState = 'breakdown';
+            else newState = 'outro'; }}}
+            if (newState !== this.currentState) { this.currentState = newState; this._onStateChange(newState); }
+        }
+
+        _onStateChange(newState) {
+            const stateConf = this.stateConfig[newState];
+            if (stateConf.sequencer.active) { if (!MK1.sequencer.isPlaying()) MK1.sequencer.start(); }
+            else { if (MK1.sequencer.isPlaying()) MK1.sequencer.stop(); }
+            this._transitionFx(stateConf.fx);
+        }
+
+        _maybePlayDrum() {
+            const stateConf = this.stateConfig[this.currentState];
+            if (Math.random() < stateConf.drums.probability) {
+                const pad = randomFrom(stateConf.drums.pads);
+                MK1.drums.hit(pad);
+                this.stats.drumsPlayed++;
+            }
+        }
+
+        _scheduleSynth() {
+            if (!this.isPlaying) return;
+            const stateConf = this.stateConfig[this.currentState];
+            if (Math.random() < stateConf.synth.probability) {
+                const note = randomFrom(this.currentScale);
+                const duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
+                MK1.synth.play(note, duration);
+                this.stats.synthNotesPlayed++;
+            }
+            const spacing = randomBetween(stateConf.synth.noteSpacing.min, stateConf.synth.noteSpacing.max);
+            const humanized = spacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
+            this.synthTimer = setTimeout(() => this._scheduleSynth(), Math.max(50, humanized));
+        }
+
+        _maybeModifySequencer() {
+            const stateConf = this.stateConfig[this.currentState];
+            if (!stateConf.sequencer.active || !stateConf.sequencer.tracksActive) return;
+            const track = randomFrom(stateConf.sequencer.tracksActive);
+            const step = randomIntBetween(1, 16);
+            const shouldActivate = Math.random() < stateConf.sequencer.density;
+            MK1.sequencer.setStep(track, step, shouldActivate);
+            this.stats.sequencerChanges++;
+        }
+
+        _scheduleFxChange() {
+            if (!this.isPlaying) return;
+            const stateConf = this.stateConfig[this.currentState];
+            MK1.fx.setReverb(randomBetween(stateConf.fx.reverb.min, stateConf.fx.reverb.max));
+            MK1.fx.setDelay(randomBetween(stateConf.fx.delay.min, stateConf.fx.delay.max));
+            MK1.fx.setFilter(randomBetween(stateConf.fx.filter.min, stateConf.fx.filter.max));
+            this.stats.fxChanges++;
+            if (Math.random() < this.config.waveformChangeChance / 60) {
+                const newWaveform = randomFrom(this.config.waveforms);
+                if (newWaveform !== this.currentWaveform) {
+                    this.currentWaveform = newWaveform;
+                    MK1.synth.setWaveform(this.currentWaveform);
+                    this.stats.waveformChanges++;
+                }
+            }
+            const nextChange = randomBetween(15000, 30000);
+            this.fxTimer = setTimeout(() => this._scheduleFxChange(), nextChange);
+        }
+
+        _transitionFx(targetFx) {
+            MK1.fx.setReverb(randomBetween(targetFx.reverb.min, targetFx.reverb.max));
+            MK1.fx.setDelay(randomBetween(targetFx.delay.min, targetFx.delay.max));
+            MK1.fx.setFilter(randomBetween(targetFx.filter.min, targetFx.filter.max));
+        }
+
+        getStatus() {
+            const elapsed = this.sessionStart ? Date.now() - this.sessionStart : 0;
+            const remaining = this.sessionDuration ? this.sessionDuration - elapsed : 0;
+            const progress = this.sessionDuration ? elapsed / this.sessionDuration : 0;
+            return {
+                isPlaying: this.isPlaying,
+                currentState: this.currentState,
+                progress: Math.round(progress * 100) + '%',
+                elapsed: formatTime(elapsed),
+                remaining: formatTime(Math.max(0, remaining)),
+                duration: formatTime(this.sessionDuration || 0),
+                mood: this.currentMood,
+                scale: this.currentScaleName,
+                bpm: this.currentBPM,
+                waveform: this.currentWaveform,
+                stats: Object.assign({}, this.stats),
+            };
+        }
+    }
+
+    if (typeof MK1 !== 'undefined') {
+        window.n0body = new N0body();
+        console.log('n0body: loaded');
+    }
+})();
+`;
+
+        // ========== DOM ELEMENTS ==========
+
+        const iframe = document.getElementById('mk1Frame');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const errorOverlay = document.getElementById('errorOverlay');
+        const errorText = document.getElementById('errorText');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusValue = document.getElementById('statusValue');
+        const stateValue = document.getElementById('stateValue');
+        const elapsedValue = document.getElementById('elapsedValue');
+        const scaleValue = document.getElementById('scaleValue');
+        const bpmValue = document.getElementById('bpmValue');
+
+        let n0bodyRef = null;
+        let statusInterval = null;
+
+        // ========== IFRAME LOAD ==========
+
+        iframe.onload = () => {
+            console.log('mk-1 iframe loaded');
+
+            // Wait for MK1 to be available in iframe
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds
+
+            const checkMK1 = setInterval(() => {
+                attempts++;
+
+                try {
+                    const iframeWindow = iframe.contentWindow;
+
+                    if (iframeWindow.MK1) {
+                        clearInterval(checkMK1);
+                        console.log('MK1 found, injecting n0body...');
+                        injectBrain(iframeWindow);
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(checkMK1);
+                        showError('MK1 API not found in mk-1. The page may have changed.');
+                    }
+                } catch (e) {
+                    clearInterval(checkMK1);
+                    showError(`Cross-origin error: Cannot access mk-1 iframe.<br><br>This page must be hosted on the same domain as mk-1, or mk-1 needs to allow cross-origin access.<br><br>Try opening mk-1 directly and using the console method.`);
+                }
+            }, 100);
+        };
+
+        iframe.onerror = () => {
+            showError('Failed to load mk-1. Check your connection.');
+        };
+
+        // ========== INJECT BRAIN ==========
+
+        function injectBrain(iframeWindow) {
+            try {
+                // Create script element and inject
+                const script = iframeWindow.document.createElement('script');
+                script.textContent = N0BODY_BRAIN;
+                iframeWindow.document.body.appendChild(script);
+
+                // Wait for n0body to be available
+                setTimeout(() => {
+                    if (iframeWindow.n0body) {
+                        n0bodyRef = iframeWindow.n0body;
+                        onReady();
+                    } else {
+                        showError('Failed to initialize n0body brain.');
+                    }
+                }, 100);
+
+            } catch (e) {
+                showError('Failed to inject n0body brain: ' + e.message);
+            }
+        }
+
+        // ========== READY STATE ==========
+
+        function onReady() {
+            loadingOverlay.classList.add('overlay--hidden');
+            startBtn.disabled = false;
+            statusValue.textContent = 'idle';
+            console.log('n0body ready');
+
+            // Start status updates
+            statusInterval = setInterval(updateStatus, 500);
+        }
+
+        function showError(message) {
+            loadingOverlay.classList.add('overlay--hidden');
+            errorOverlay.classList.remove('overlay--hidden');
+            errorText.innerHTML = message;
+        }
+
+        // ========== CONTROLS ==========
+
+        startBtn.onclick = () => {
+            if (!n0bodyRef) return;
+
+            // Click anywhere on iframe first to enable audio context
+            try {
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                const clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: iframe.contentWindow
+                });
+                iframeDoc.body.dispatchEvent(clickEvent);
+            } catch (e) {
+                // Ignore cross-origin errors
+            }
+
+            n0bodyRef.start();
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+        };
+
+        stopBtn.onclick = () => {
+            if (!n0bodyRef) return;
+            n0bodyRef.stop();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        };
+
+        // ========== STATUS UPDATES ==========
+
+        function updateStatus() {
+            if (!n0bodyRef) return;
+
+            const status = n0bodyRef.getStatus();
+
+            if (status.isPlaying) {
+                statusValue.textContent = 'playing';
+                statusValue.classList.add('status-value--playing');
+                stateValue.textContent = status.currentState;
+                stateValue.classList.add('status-value--active');
+                elapsedValue.textContent = status.elapsed;
+                elapsedValue.classList.add('status-value--active');
+                scaleValue.textContent = status.scale || '—';
+                scaleValue.classList.add('status-value--active');
+                bpmValue.textContent = status.bpm || '—';
+                bpmValue.classList.add('status-value--active');
+
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } else {
+                statusValue.textContent = 'idle';
+                statusValue.classList.remove('status-value--playing');
+                stateValue.textContent = '—';
+                stateValue.classList.remove('status-value--active');
+                elapsedValue.textContent = '—';
+                elapsedValue.classList.remove('status-value--active');
+                scaleValue.textContent = '—';
+                scaleValue.classList.remove('status-value--active');
+                bpmValue.textContent = '—';
+                bpmValue.classList.remove('status-value--active');
+
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        }
+
+    </script>
 </body>
 </html>
