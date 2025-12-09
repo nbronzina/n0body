@@ -259,12 +259,12 @@
     }
 
     function getLevel(sessions) {
-        if (sessions < 5) return 'newborn';
-        if (sessions < 15) return 'learning';
-        if (sessions < 30) return 'developing';
-        if (sessions < 50) return 'skilled';
-        if (sessions < 100) return 'experienced';
-        return 'master';
+        if (sessions < 11) return 'newborn';      // 1-10
+        if (sessions < 31) return 'learning';     // 11-30
+        if (sessions < 61) return 'developing';   // 31-60
+        if (sessions < 101) return 'skilled';     // 61-100
+        if (sessions < 201) return 'experienced'; // 101-200
+        return 'master';                          // 200+
     }
 
     // ========== SHORT TERM MEMORY ==========
@@ -449,8 +449,25 @@
 
         this.knowledge = loadKnowledge() || initKnowledge();
         this.shortTermMemory = new ShortTermMemory(30);
-        this.explorationRate = 0.15;
     }
+
+    N0body.prototype.getExplorationRate = function() {
+        var sessions = this.knowledge.sessionsPlayed;
+        if (sessions < 11) return 0.70;   // newborn: 70% exploration
+        if (sessions < 31) return 0.50;   // learning: 50%
+        if (sessions < 61) return 0.30;   // developing: 30%
+        if (sessions < 101) return 0.20;  // skilled: 20%
+        if (sessions < 201) return 0.15;  // experienced: 15%
+        return 0.10;                       // master: 10%
+    };
+
+    N0body.prototype.reduceVariance = function(currentVariance, minVariance) {
+        var sessions = this.knowledge.sessionsPlayed;
+        // Gradual reduction: 0.5% per session
+        var reduction = 1 - (sessions * 0.005);
+        var newVariance = currentVariance * Math.max(0.3, reduction);
+        return Math.max(minVariance, newVariance);
+    };
 
     N0body.prototype.start = function() {
         if (this.isPlaying) return;
@@ -749,7 +766,7 @@
         var state = this.currentState;
         var stateConf = this.stateConfig[state];
         var availablePads = stateConf.drums.pads;
-        if (Math.random() < this.explorationRate) return randomFrom(availablePads);
+        if (Math.random() < this.getExplorationRate()) return randomFrom(availablePads);
         var weights = {};
         var self = this;
         availablePads.forEach(function(pad) { weights[pad] = (self.knowledge.drums[state] && self.knowledge.drums[state][pad]) || 1.0; });
@@ -794,7 +811,7 @@
         if (!bpmPref) return Math.round(randomBetween(this.config.tempo.bpm.min, this.config.tempo.bpm.max));
 
         // Exploration vs exploitation
-        if (Math.random() < this.explorationRate) {
+        if (Math.random() < this.getExplorationRate()) {
             // Explore: random BPM in valid range
             return Math.round(randomBetween(this.config.tempo.bpm.min, this.config.tempo.bpm.max));
         }
@@ -822,11 +839,11 @@
         // If session was good, move preferred toward this BPM
         if (sessionReward > 0.5) {
             bpmPref.preferred = bpmPref.preferred + (this.currentBPM - bpmPref.preferred) * lr * sessionReward;
-            // Reduce variance when we find what works (more confident)
-            bpmPref.variance = Math.max(5, bpmPref.variance * (1 - lr * 0.1));
+            // Reduce variance gradually (more confident over time)
+            bpmPref.variance = this.reduceVariance(bpmPref.variance, 5);
         } else if (sessionReward < -0.5) {
-            // Bad session: increase variance to explore more
-            bpmPref.variance = Math.min(20, bpmPref.variance * (1 + lr * 0.1));
+            // Bad session: slight increase in variance to explore more
+            bpmPref.variance = Math.min(20, bpmPref.variance * 1.02);
         }
     };
 
@@ -861,7 +878,7 @@
         var self = this;
 
         // Exploration vs exploitation
-        if (Math.random() < this.explorationRate) {
+        if (Math.random() < this.getExplorationRate()) {
             return randomFrom(scaleNames);
         }
 
@@ -897,7 +914,7 @@
         if (!waveformPref) return randomFrom(this.config.waveforms);
 
         // Exploration vs exploitation
-        if (Math.random() < this.explorationRate) {
+        if (Math.random() < this.getExplorationRate()) {
             return randomFrom(this.config.waveforms);
         }
 
@@ -930,7 +947,7 @@
         }
 
         // Exploration vs exploitation
-        if (Math.random() < this.explorationRate) {
+        if (Math.random() < this.getExplorationRate()) {
             return randomBetween(durPref.min, durPref.max);
         }
 
@@ -950,11 +967,11 @@
         // If good reward, move preferred toward actual duration
         if (reward > 0.5) {
             durPref.preferred = durPref.preferred + (actualDuration - durPref.preferred) * lr * reward;
-            // Reduce variance (more confident)
-            durPref.variance = Math.max(10, durPref.variance * (1 - lr * 0.1));
+            // Reduce variance gradually (more confident over time)
+            durPref.variance = this.reduceVariance(durPref.variance, 10);
         } else if (reward < -0.5) {
-            // Bad: increase variance to explore more
-            durPref.variance = Math.min(durPref.max - durPref.min, durPref.variance * (1 + lr * 0.1));
+            // Bad: slight increase in variance to explore more
+            durPref.variance = Math.min(durPref.max - durPref.min, durPref.variance * 1.02);
         }
     };
 
