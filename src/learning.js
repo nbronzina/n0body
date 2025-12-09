@@ -51,6 +51,10 @@ function initKnowledge() {
             bright: { preferred: 110, variance: 15 },
             neutral: { preferred: 95, variance: 12 },
         },
+
+        // State transition success (v3)
+        // Keys: 'from_to_nextState', Values: { count, avgReward }
+        transitionSuccess: {},
     };
 }
 

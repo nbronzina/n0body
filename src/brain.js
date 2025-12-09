@@ -1,9 +1,9 @@
-// brain.js — Main N0body class with learning
+// brain.js — n0body v3: Unlimited sessions, organic transitions, full mk-1
 
-import { CONFIG } from './config.js';
+import { CONFIG, STATE_TRANSITIONS } from './config.js';
 import { SCALES, SCALE_MOODS } from './scales.js';
 import { STATE_CONFIG } from './states.js';
-import { randomBetween, randomIntBetween, randomFrom, formatTime } from './utils.js';
+import { randomBetween, randomIntBetween, randomFrom, formatTime, formatTimeHMS } from './utils.js';
 import { saveKnowledge, loadKnowledge, resetKnowledge } from './memory.js';
 import {
     initKnowledge,
@@ -21,11 +21,13 @@ class N0body {
         this.scales = scales;
         this.scaleMoods = scaleMoods;
         this.stateConfig = stateConfig;
+        this.stateTransitions = STATE_TRANSITIONS;
 
         // Estado interno
         this.isPlaying = false;
+        this.isEnding = false;  // Graceful stop in progress
         this.sessionStart = null;
-        this.sessionDuration = null;
+        this.stateStartTime = null;
         this.currentState = 'intro';
         this.currentScale = null;
         this.currentScaleName = null;
@@ -37,6 +39,8 @@ class N0body {
         this.mainLoop = null;
         this.synthTimer = null;
         this.fxTimer = null;
+        this.transitionCheckTimer = null;
+        this.outroTimer = null;
 
         // Stats
         this.stats = {
@@ -45,14 +49,15 @@ class N0body {
             sequencerChanges: 0,
             fxChanges: 0,
             waveformChanges: 0,
+            stateTransitions: 0,
         };
 
         // Learning system
         this.knowledge = loadKnowledge() || initKnowledge();
         this.shortTermMemory = new ShortTermMemory(30);
-        this.explorationRate = 0.15;  // 15% exploration, 85% exploitation
+        this.explorationRate = 0.15;
 
-        console.log(`n0body: loaded with ${this.knowledge.sessionsPlayed} sessions of experience (${getLevel(this.knowledge.sessionsPlayed)})`);
+        console.log(`n0body v3: loaded with ${this.knowledge.sessionsPlayed} sessions of experience (${getLevel(this.knowledge.sessionsPlayed)})`);
     }
 
     // ========== CONTROL ==========
@@ -70,16 +75,15 @@ class N0body {
 
         console.log('');
         console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
-        console.log('  n0body is going live...');
+        console.log('  n0body v3 is going live...');
+        console.log('  unlimited session — stop when ready');
         console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
         console.log('');
 
         this.isPlaying = true;
+        this.isEnding = false;
         this.sessionStart = Date.now();
-        this.sessionDuration = randomBetween(
-            this.config.session.durationMinutes.min * 60 * 1000,
-            this.config.session.durationMinutes.max * 60 * 1000
-        );
+        this.stateStartTime = Date.now();
 
         // Reset stats and short-term memory
         this.stats = {
@@ -88,6 +92,7 @@ class N0body {
             sequencerChanges: 0,
             fxChanges: 0,
             waveformChanges: 0,
+            stateTransitions: 0,
         };
         this.shortTermMemory.clear();
 
@@ -97,10 +102,8 @@ class N0body {
         this.initSession();
         this.startLoops();
 
-        const durationMin = Math.round(this.sessionDuration / 1000 / 60);
         console.log(`n0body: session #${this.knowledge.sessionsPlayed} starting`);
         console.log(`n0body: level: ${getLevel(this.knowledge.sessionsPlayed)}`);
-        console.log(`n0body: duration ~${durationMin} minutes`);
         console.log('');
     }
 
@@ -110,6 +113,41 @@ class N0body {
             return;
         }
 
+        if (this.isEnding) {
+            console.log('n0body: already ending...');
+            return;
+        }
+
+        console.log('');
+        console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
+        console.log('  n0body: entering outro...');
+        console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
+        console.log('');
+
+        this.isEnding = true;
+
+        // Stop transition checks
+        if (this.transitionCheckTimer) {
+            clearInterval(this.transitionCheckTimer);
+        }
+
+        // Transition to outro
+        this.transitionTo('outro');
+
+        // Schedule actual stop after outro duration
+        const outroDuration = randomBetween(
+            this.config.outro.minDuration * 1000,
+            this.config.outro.maxDuration * 1000
+        );
+
+        console.log(`n0body: outro will last ~${Math.round(outroDuration / 1000)}s`);
+
+        this.outroTimer = setTimeout(() => {
+            this.actualStop();
+        }, outroDuration);
+    }
+
+    actualStop() {
         console.log('');
         console.log('▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓');
         console.log('  n0body is signing off...');
@@ -117,11 +155,14 @@ class N0body {
         console.log('');
 
         this.isPlaying = false;
+        this.isEnding = false;
 
-        // Limpiar timers
+        // Clear all timers
         if (this.mainLoop) clearInterval(this.mainLoop);
         if (this.synthTimer) clearTimeout(this.synthTimer);
         if (this.fxTimer) clearTimeout(this.fxTimer);
+        if (this.transitionCheckTimer) clearInterval(this.transitionCheckTimer);
+        if (this.outroTimer) clearTimeout(this.outroTimer);
 
         // Clear mk-1 completely (session is ephemeral)
         MK1.sequencer.stop();
@@ -130,6 +171,9 @@ class N0body {
         MK1.fx.setReverb(0);
         MK1.fx.setDelay(0);
         MK1.fx.setFilter(0.5);
+        MK1.fx.setDistortion(0);
+        MK1.fx.setChorus(0);
+        MK1.fx.setCrush(0);
         MK1.tempo.setBPM(120);
 
         // Calculate session duration and update knowledge
@@ -150,22 +194,140 @@ class N0body {
 
         // Log stats
         console.log('n0body: session stats');
-        console.log(`  duration: ${formatTime(elapsed)}`);
+        console.log(`  duration: ${formatTimeHMS(elapsed)}`);
+        console.log(`  state transitions: ${this.stats.stateTransitions}`);
         console.log(`  drums: ${this.stats.drumsPlayed}`);
         console.log(`  synth notes: ${this.stats.synthNotesPlayed}`);
         console.log(`  sequencer changes: ${this.stats.sequencerChanges}`);
         console.log(`  fx changes: ${this.stats.fxChanges}`);
-        console.log(`  waveform changes: ${this.stats.waveformChanges}`);
         console.log('');
         console.log(`n0body: total experience: ${this.knowledge.sessionsPlayed} sessions, ${Math.round(this.knowledge.totalPlayTime)} minutes`);
         console.log('n0body: session ended, mk-1 cleared. see you next time.');
         console.log('');
     }
 
+    // ========== ORGANIC STATE TRANSITIONS ==========
+
+    checkStateTransition() {
+        if (this.isEnding) return;  // In outro, don't transition
+
+        const timeInState = (Date.now() - this.stateStartTime) / 1000;
+        const stateConfig = this.stateTransitions[this.currentState];
+
+        if (!stateConfig || !stateConfig.transitions) return;
+
+        // Too early to change
+        if (timeInState < stateConfig.minDuration) {
+            return;
+        }
+
+        // Must transition?
+        const mustTransition = timeInState >= stateConfig.maxDuration;
+
+        // Probability of checking increases with time
+        const checkChance = mustTransition ? 1.0 :
+            Math.min(0.4, (timeInState - stateConfig.minDuration) / stateConfig.maxDuration);
+
+        if (Math.random() > checkChance) {
+            return;
+        }
+
+        // Choose next state (with learning)
+        const adjustedTransitions = this.adjustTransitionsWithLearning(stateConfig.transitions);
+        const nextState = weightedChoice(adjustedTransitions);
+
+        if (nextState && nextState !== this.currentState) {
+            console.log(`n0body: ${this.currentState} → ${nextState} (after ${Math.round(timeInState)}s)`);
+            this.transitionTo(nextState);
+        }
+    }
+
+    transitionTo(newState) {
+        // Track transition for learning
+        const transitionKey = `${this.currentState}_to_${newState}`;
+        const reward = this.evaluateStateReward();
+        this.learnTransition(transitionKey, reward);
+
+        // Change state
+        this.currentState = newState;
+        this.stateStartTime = Date.now();
+        this.stats.stateTransitions++;
+        this.onStateChange(newState);
+    }
+
+    adjustTransitionsWithLearning(transitions) {
+        const adjusted = {};
+
+        for (const [nextState, baseProbability] of Object.entries(transitions)) {
+            const key = `${this.currentState}_to_${nextState}`;
+            const learned = this.knowledge.transitionSuccess?.[key];
+
+            if (learned && learned.count > 5) {
+                // Modifier based on historical success
+                const modifier = Math.pow(learned.avgReward, 0.3);  // Soft
+                adjusted[nextState] = baseProbability * clamp(modifier, 0.5, 2.0);
+            } else {
+                adjusted[nextState] = baseProbability;
+            }
+        }
+
+        // Normalize
+        const total = Object.values(adjusted).reduce((a, b) => a + b, 0);
+        if (total > 0) {
+            for (const key of Object.keys(adjusted)) {
+                adjusted[key] /= total;
+            }
+        }
+
+        return adjusted;
+    }
+
+    evaluateStateReward() {
+        // Based on recent activity
+        const recent = this.shortTermMemory.actions.slice(-20);
+        if (recent.length < 5) return 1.0;
+
+        let reward = 1.0;
+
+        // Variety of actions
+        const types = new Set(recent.map(a => a.type));
+        reward += (types.size - 2) * 0.2;
+
+        // Consistent rhythm
+        if (recent.length >= 4) {
+            const intervals = [];
+            for (let i = 1; i < recent.length; i++) {
+                intervals.push(recent[i].timestamp - recent[i - 1].timestamp);
+            }
+            const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+            const variance = intervals.reduce((sum, intv) => sum + Math.pow(intv - avgInterval, 2), 0) / intervals.length;
+            const stdDev = Math.sqrt(variance);
+
+            if (avgInterval > 0 && stdDev < avgInterval * 0.5) {
+                reward += 0.3;
+            }
+        }
+
+        return clamp(reward, 0.5, 2.0);
+    }
+
+    learnTransition(transitionKey, reward) {
+        if (!this.knowledge.transitionSuccess) {
+            this.knowledge.transitionSuccess = {};
+        }
+
+        if (!this.knowledge.transitionSuccess[transitionKey]) {
+            this.knowledge.transitionSuccess[transitionKey] = { count: 0, avgReward: 1.0 };
+        }
+
+        const ts = this.knowledge.transitionSuccess[transitionKey];
+        ts.avgReward = (ts.avgReward * ts.count + reward) / (ts.count + 1);
+        ts.count++;
+    }
+
     // ========== LEARNING ==========
 
     learn(action) {
-        // Add context to action
         const contextualAction = {
             ...action,
             context: {
@@ -176,20 +338,13 @@ class N0body {
             }
         };
 
-        // Add to short-term memory
         this.shortTermMemory.add(contextualAction);
 
-        // Evaluate recent performance
         const recentActions = this.shortTermMemory.getRecent(10);
         const reward = evaluateReward(recentActions);
-
-        // Get learning rate (decreases with experience)
         const lr = getLearningRate(this.knowledge.sessionsPlayed);
 
-        // Update preferences based on action type
         this.updatePreferences(action, reward, lr);
-
-        // Learn combo patterns
         this.learnCombos(reward, lr);
     }
 
@@ -197,9 +352,9 @@ class N0body {
         const state = this.currentState;
 
         if (action.type === 'drum') {
-            const current = this.knowledge.drums[state][action.pad] || 1.0;
-            const updated = current + (reward * lr);
-            this.knowledge.drums[state][action.pad] = clamp(updated, 0.1, 5.0);
+            const current = this.knowledge.drums[state]?.[action.pad] || 1.0;
+            if (!this.knowledge.drums[state]) this.knowledge.drums[state] = {};
+            this.knowledge.drums[state][action.pad] = clamp(current + (reward * lr), 0.1, 5.0);
         }
 
         if (action.type === 'synth' && action.note) {
@@ -211,14 +366,18 @@ class N0body {
                 });
             }
             const current = this.knowledge.notes[key][action.note] || 1.0;
-            const updated = current + (reward * lr);
-            this.knowledge.notes[key][action.note] = clamp(updated, 0.1, 5.0);
+            this.knowledge.notes[key][action.note] = clamp(current + (reward * lr), 0.1, 5.0);
         }
 
         if (action.type === 'fx' && action.param && action.value !== undefined) {
-            const fxState = this.knowledge.fx[state]?.[action.param];
-            if (fxState && reward > 0) {
-                // Move preferred toward current value when it sounds good
+            if (!this.knowledge.fx[state]) {
+                this.knowledge.fx[state] = {};
+            }
+            if (!this.knowledge.fx[state][action.param]) {
+                this.knowledge.fx[state][action.param] = { preferred: action.value, variance: 0.15 };
+            }
+            const fxState = this.knowledge.fx[state][action.param];
+            if (reward > 0) {
                 fxState.preferred = fxState.preferred * 0.9 + action.value * 0.1;
             }
         }
@@ -228,7 +387,6 @@ class N0body {
         const recent = this.shortTermMemory.getRecent(3);
         if (recent.length < 3) return;
 
-        // Create combo key from last 3 action types
         const comboKey = recent.map(a => {
             if (a.type === 'drum') return `drum${a.pad}`;
             return a.type;
@@ -250,15 +408,13 @@ class N0body {
         const stateConf = this.stateConfig[state];
         const availablePads = stateConf.drums.pads;
 
-        // Exploration: try something random
         if (Math.random() < this.explorationRate) {
             return randomFrom(availablePads);
         }
 
-        // Exploitation: use learned preferences
         const weights = {};
         availablePads.forEach(pad => {
-            weights[pad] = this.knowledge.drums[state][pad] || 1.0;
+            weights[pad] = this.knowledge.drums[state]?.[pad] || 1.0;
         });
 
         return weightedChoice(weights);
@@ -268,17 +424,14 @@ class N0body {
         const key = `${this.currentScaleName}_${this.currentState}`;
         const weights = this.knowledge.notes[key];
 
-        // If no learned preferences, random from scale
         if (!weights || Object.keys(weights).length === 0) {
             return randomFrom(this.currentScale);
         }
 
-        // Exploration
         if (Math.random() < this.explorationRate) {
             return randomFrom(this.currentScale);
         }
 
-        // Exploitation
         return weightedChoice(weights);
     }
 
@@ -287,18 +440,17 @@ class N0body {
         const fxPref = this.knowledge.fx[state]?.[param];
 
         if (!fxPref) {
-            // No learned preference, use state config
-            const range = this.stateConfig[state].fx[param];
+            const range = this.stateConfig[state]?.fx?.[param];
+            if (!range) return 0.5;
             return randomBetween(range.min, range.max);
         }
 
-        // Use preferred value with variance
         const value = fxPref.preferred + (Math.random() - 0.5) * fxPref.variance * 2;
         return clamp(value, 0, 1);
     }
 
     chooseBPM() {
-        const bpmPref = this.knowledge.bpmPreference[this.currentMood];
+        const bpmPref = this.knowledge.bpmPreference?.[this.currentMood];
 
         if (!bpmPref) {
             return Math.round(randomBetween(
@@ -307,22 +459,19 @@ class N0body {
             ));
         }
 
-        // Use preferred BPM with variance
         const bpm = bpmPref.preferred + (Math.random() - 0.5) * bpmPref.variance * 2;
         return Math.round(clamp(bpm, this.config.tempo.bpm.min, this.config.tempo.bpm.max));
     }
 
-    // ========== INICIALIZACIÓN ==========
+    // ========== INITIALIZATION ==========
 
     initSession() {
-        // Elegir mood y escala para la sesión
         this.currentMood = randomFrom(['dark', 'neutral', 'bright']);
         const scaleNames = this.scaleMoods[this.currentMood];
 
-        // Use scale success to prefer better performing scales
         const scaleWeights = {};
         scaleNames.forEach(name => {
-            const success = this.knowledge.scaleSuccess[name];
+            const success = this.knowledge.scaleSuccess?.[name];
             scaleWeights[name] = success ? success.avgScore : 1.0;
         });
 
@@ -330,29 +479,22 @@ class N0body {
         this.currentScale = this.scales[this.currentScaleName];
         console.log(`n0body: mood=${this.currentMood}, scale=${this.currentScaleName}`);
 
-        // Elegir BPM using learned preference
         this.currentBPM = this.chooseBPM();
         MK1.tempo.setBPM(this.currentBPM);
         console.log(`n0body: BPM=${this.currentBPM}`);
 
-        // Elegir waveform inicial
         this.currentWaveform = randomFrom(this.config.waveforms);
         MK1.synth.setWaveform(this.currentWaveform);
         console.log(`n0body: waveform=${this.currentWaveform}`);
 
-        // FX iniciales using learned preferences
-        MK1.fx.setReverb(this.chooseFxValue('reverb'));
-        MK1.fx.setDelay(this.chooseFxValue('delay'));
-        MK1.fx.setFilter(this.chooseFxValue('filter'));
+        // Initialize all FX
+        this.applyAllFx();
 
-        // Volumen inicial
         MK1.master.setVolume(0.7);
-
-        // Limpiar sequencer
         MK1.sequencer.clearAll();
 
-        // Estado inicial
         this.currentState = 'intro';
+        this.stateStartTime = Date.now();
         console.log(`n0body: state=intro`);
     }
 
@@ -362,18 +504,17 @@ class N0body {
         this.mainLoop = setInterval(() => this.tick(), 100);
         this.scheduleSynth();
         this.scheduleFxChange();
+
+        // Organic transition check every N seconds
+        this.transitionCheckTimer = setInterval(
+            () => this.checkStateTransition(),
+            this.config.session.transitionCheckInterval * 1000
+        );
     }
 
     tick() {
         if (!this.isPlaying) return;
 
-        const elapsed = Date.now() - this.sessionStart;
-        if (elapsed >= this.sessionDuration) {
-            this.stop();
-            return;
-        }
-
-        this.updateState(elapsed);
         this.maybePlayDrum();
 
         if (Math.random() < 0.02) {
@@ -381,43 +522,7 @@ class N0body {
         }
     }
 
-    // ========== ESTADO ==========
-
-    updateState(elapsed) {
-        const progress = elapsed / this.sessionDuration;
-        const dist = this.config.stateDistribution;
-
-        let newState;
-        let cumulative = 0;
-
-        cumulative += dist.intro;
-        if (progress < cumulative) {
-            newState = 'intro';
-        } else {
-            cumulative += dist.buildup;
-            if (progress < cumulative) {
-                newState = 'buildup';
-            } else {
-                cumulative += dist.peak;
-                if (progress < cumulative) {
-                    newState = 'peak';
-                } else {
-                    cumulative += dist.breakdown;
-                    if (progress < cumulative) {
-                        newState = 'breakdown';
-                    } else {
-                        newState = 'outro';
-                    }
-                }
-            }
-        }
-
-        if (newState !== this.currentState) {
-            console.log(`n0body: ${this.currentState} → ${newState} (${Math.round(progress * 100)}%)`);
-            this.currentState = newState;
-            this.onStateChange(newState);
-        }
-    }
+    // ========== STATE ==========
 
     onStateChange(newState) {
         const stateConf = this.stateConfig[newState];
@@ -434,7 +539,7 @@ class N0body {
             }
         }
 
-        this.transitionFx(stateConf.fx);
+        this.applyAllFx();
     }
 
     // ========== DRUMS ==========
@@ -442,11 +547,9 @@ class N0body {
     maybePlayDrum() {
         const stateConf = this.stateConfig[this.currentState];
         if (Math.random() < stateConf.drums.probability) {
-            const pad = this.chooseDrumPad();  // Now uses learning
+            const pad = this.chooseDrumPad();
             MK1.drums.hit(pad);
             this.stats.drumsPlayed++;
-
-            // Learn from this action
             this.learn({ type: 'drum', pad: pad });
         }
     }
@@ -459,15 +562,13 @@ class N0body {
         const stateConf = this.stateConfig[this.currentState];
 
         if (Math.random() < stateConf.synth.probability) {
-            const note = this.chooseSynthNote();  // Now uses learning
+            const note = this.chooseSynthNote();
             const duration = randomBetween(
                 stateConf.synth.noteDuration.min,
                 stateConf.synth.noteDuration.max
             );
             MK1.synth.play(note, duration);
             this.stats.synthNotesPlayed++;
-
-            // Learn from this action
             this.learn({ type: 'synth', note: note, duration: duration });
         }
 
@@ -496,32 +597,54 @@ class N0body {
         const shouldActivate = Math.random() < stateConf.sequencer.density;
         MK1.sequencer.setStep(track, step, shouldActivate);
         this.stats.sequencerChanges++;
-
-        // Learn from this action
         this.learn({ type: 'sequencer', track: track, step: step, active: shouldActivate });
     }
 
     // ========== FX ==========
 
-    scheduleFxChange() {
-        if (!this.isPlaying) return;
-
-        // Use learned FX values
+    applyAllFx() {
         const reverbValue = this.chooseFxValue('reverb');
         const delayValue = this.chooseFxValue('delay');
         const filterValue = this.chooseFxValue('filter');
+        const distortionValue = this.chooseFxValue('distortion');
+        const chorusValue = this.chooseFxValue('chorus');
+        const crushValue = this.chooseFxValue('crush');
 
         MK1.fx.setReverb(reverbValue);
         MK1.fx.setDelay(delayValue);
         MK1.fx.setFilter(filterValue);
+        MK1.fx.setDistortion(distortionValue);
+        MK1.fx.setChorus(chorusValue);
+        MK1.fx.setCrush(crushValue);
+    }
+
+    scheduleFxChange() {
+        if (!this.isPlaying) return;
+
+        const reverbValue = this.chooseFxValue('reverb');
+        const delayValue = this.chooseFxValue('delay');
+        const filterValue = this.chooseFxValue('filter');
+        const distortionValue = this.chooseFxValue('distortion');
+        const chorusValue = this.chooseFxValue('chorus');
+        const crushValue = this.chooseFxValue('crush');
+
+        MK1.fx.setReverb(reverbValue);
+        MK1.fx.setDelay(delayValue);
+        MK1.fx.setFilter(filterValue);
+        MK1.fx.setDistortion(distortionValue);
+        MK1.fx.setChorus(chorusValue);
+        MK1.fx.setCrush(crushValue);
         this.stats.fxChanges++;
 
         // Learn from FX choices
         this.learn({ type: 'fx', param: 'reverb', value: reverbValue });
         this.learn({ type: 'fx', param: 'delay', value: delayValue });
         this.learn({ type: 'fx', param: 'filter', value: filterValue });
+        this.learn({ type: 'fx', param: 'distortion', value: distortionValue });
+        this.learn({ type: 'fx', param: 'chorus', value: chorusValue });
+        this.learn({ type: 'fx', param: 'crush', value: crushValue });
 
-        // Posible cambio de waveform
+        // Maybe change waveform
         if (Math.random() < this.config.waveformChangeChance / 60) {
             const newWaveform = randomFrom(this.config.waveforms);
             if (newWaveform !== this.currentWaveform) {
@@ -536,26 +659,19 @@ class N0body {
         this.fxTimer = setTimeout(() => this.scheduleFxChange(), nextChange);
     }
 
-    transitionFx(targetFx) {
-        MK1.fx.setReverb(this.chooseFxValue('reverb'));
-        MK1.fx.setDelay(this.chooseFxValue('delay'));
-        MK1.fx.setFilter(this.chooseFxValue('filter'));
-    }
-
-    // ========== DEBUG ==========
+    // ========== STATUS ==========
 
     getStatus() {
         const elapsed = this.sessionStart ? Date.now() - this.sessionStart : 0;
-        const remaining = this.sessionDuration ? this.sessionDuration - elapsed : 0;
-        const progress = this.sessionDuration ? elapsed / this.sessionDuration : 0;
+        const timeInState = this.stateStartTime ? Date.now() - this.stateStartTime : 0;
 
         return {
             isPlaying: this.isPlaying,
+            isEnding: this.isEnding,
             currentState: this.currentState,
-            progress: `${Math.round(progress * 100)}%`,
-            elapsed: formatTime(elapsed),
-            remaining: formatTime(Math.max(0, remaining)),
-            duration: formatTime(this.sessionDuration || 0),
+            timeInState: Math.round(timeInState / 1000),
+            elapsed: elapsed,
+            elapsedFormatted: formatTimeHMS(elapsed),
             mood: this.currentMood,
             scale: this.currentScaleName,
             bpm: this.currentBPM,
@@ -572,15 +688,15 @@ class N0body {
     status() {
         const s = this.getStatus();
         console.log('');
-        console.log('n0body status:');
-        console.log(`  playing: ${s.isPlaying}`);
-        console.log(`  state: ${s.currentState}`);
-        console.log(`  progress: ${s.progress} (${s.elapsed} / ${s.duration})`);
-        console.log(`  remaining: ${s.remaining}`);
+        console.log('n0body v3 status:');
+        console.log(`  playing: ${s.isPlaying}${s.isEnding ? ' (ending)' : ''}`);
+        console.log(`  state: ${s.currentState} (${s.timeInState}s)`);
+        console.log(`  elapsed: ${s.elapsedFormatted}`);
         console.log(`  mood: ${s.mood}`);
         console.log(`  scale: ${s.scale}`);
         console.log(`  bpm: ${s.bpm}`);
         console.log(`  waveform: ${s.waveform}`);
+        console.log(`  transitions: ${s.stats.stateTransitions}`);
         console.log(`  experience: ${s.experience.sessions} sessions, ${s.experience.totalMinutes} min (${s.experience.level})`);
         console.log('');
         return s;

@@ -1,4 +1,4 @@
-// states.js — State configuration for n0body sessions
+// states.js — State configuration for n0body v3 sessions
 
 const STATE_CONFIG = {
     intro: {
@@ -18,6 +18,9 @@ const STATE_CONFIG = {
             reverb: { min: 0.3, max: 0.5 },
             delay: { min: 0, max: 0.2 },
             filter: { min: 0.4, max: 0.6 },
+            distortion: { min: 0, max: 0.1 },
+            chorus: { min: 0, max: 0.2 },
+            crush: { min: 0, max: 0 },
         },
     },
 
@@ -40,6 +43,9 @@ const STATE_CONFIG = {
             reverb: { min: 0.4, max: 0.6 },
             delay: { min: 0.2, max: 0.4 },
             filter: { min: 0.5, max: 0.7 },
+            distortion: { min: 0, max: 0.2 },
+            chorus: { min: 0.1, max: 0.3 },
+            crush: { min: 0, max: 0.1 },
         },
     },
 
@@ -62,6 +68,9 @@ const STATE_CONFIG = {
             reverb: { min: 0.5, max: 0.8 },
             delay: { min: 0.3, max: 0.6 },
             filter: { min: 0.6, max: 0.9 },
+            distortion: { min: 0.1, max: 0.4 },
+            chorus: { min: 0.2, max: 0.5 },
+            crush: { min: 0, max: 0.3 },
         },
     },
 
@@ -81,9 +90,12 @@ const STATE_CONFIG = {
             tracksActive: [1, 2],
         },
         fx: {
-            reverb: { min: 0.4, max: 0.6 },
+            reverb: { min: 0.5, max: 0.7 },
             delay: { min: 0.1, max: 0.3 },
             filter: { min: 0.3, max: 0.5 },
+            distortion: { min: 0, max: 0.15 },
+            chorus: { min: 0.1, max: 0.3 },
+            crush: { min: 0, max: 0.1 },
         },
     },
 
@@ -101,9 +113,12 @@ const STATE_CONFIG = {
             active: false,
         },
         fx: {
-            reverb: { min: 0.6, max: 0.8 },  // Reverb alto para fade
+            reverb: { min: 0.7, max: 0.95 },  // Mucho reverb para fade
             delay: { min: 0, max: 0.1 },
-            filter: { min: 0.2, max: 0.4 },
+            filter: { min: 0.1, max: 0.3 },   // Apagando
+            distortion: { min: 0, max: 0 },
+            chorus: { min: 0, max: 0.1 },
+            crush: { min: 0, max: 0 },
         },
     },
 };

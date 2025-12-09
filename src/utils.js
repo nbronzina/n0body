@@ -63,4 +63,21 @@ function formatTime(ms) {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-export { randomBetween, randomIntBetween, randomFrom, clamp, lerp, formatTime };
+/**
+ * Formats milliseconds to hh:mm:ss (for long sessions)
+ * @param {number} ms
+ * @returns {string}
+ */
+function formatTimeHMS(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+export { randomBetween, randomIntBetween, randomFrom, clamp, lerp, formatTime, formatTimeHMS };
