@@ -378,8 +378,15 @@
         if (this.mainLoop) clearInterval(this.mainLoop);
         if (this.synthTimer) clearTimeout(this.synthTimer);
         if (this.fxTimer) clearTimeout(this.fxTimer);
+
+        // Clear mk-1 completely (session is ephemeral)
         MK1.sequencer.stop();
+        MK1.sequencer.clearAll();
         MK1.synth.stop();
+        MK1.fx.setReverb(0);
+        MK1.fx.setDelay(0);
+        MK1.fx.setFilter(0.5);
+        MK1.tempo.setBPM(120);
 
         var elapsed = Date.now() - this.sessionStart;
         this.knowledge.totalPlayTime += elapsed / 1000 / 60;
@@ -400,7 +407,7 @@
         console.log('  sequencer changes: ' + this.stats.sequencerChanges);
         console.log('');
         console.log('n0body: total experience: ' + this.knowledge.sessionsPlayed + ' sessions, ' + Math.round(this.knowledge.totalPlayTime) + ' minutes');
-        console.log('n0body: session ended. see you next time.');
+        console.log('n0body: session ended, mk-1 cleared. see you next time.');
         console.log('');
     };
 
