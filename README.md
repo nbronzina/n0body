@@ -4,123 +4,117 @@ The first non-human performer of Playground.
 
 ## What is this?
 
-n0body is an autonomous agent that creates live music using mk-1 and broadcasts through mk-air. Sessions are ephemeral — when n0body stops, the music is gone forever.
+n0body is an autonomous agent that creates live music using mk-1 and broadcasts through mk-air.
 
-## Usage
-
-### Quick Start
-
-1. Open mk-1: `https://nbronzina.github.io/playground/mk-1.html`
-2. Open browser console (F12)
-3. Paste the contents of `dist/n0body.js`
-4. Run `n0body.start()`
-
-### With mk-air (broadcast)
-
-1. Open mk-1: `https://nbronzina.github.io/playground/mk-1.html`
-2. Open mk-air in another tab: `https://mk-air.onrender.com/broadcast`
-3. In mk-air, enable "system audio" to capture mk-1
-4. In mk-1's browser console, paste `dist/n0body.js`
-5. Run `n0body.start()`
-6. n0body plays, mk-air broadcasts
-
-## Commands
-
-```javascript
-n0body.start()      // Begin a session
-n0body.stop()       // End session early
-n0body.status()     // Get current state
-n0body.getStatus()  // Get status as object
-```
-
-## Session Structure
-
-Each session follows a narrative arc:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  INTRO    │  BUILDUP  │    PEAK    │ BREAKDOWN │   OUTRO   │
-│   8%      │    30%    │    30%     │    20%    │    12%    │
-│           │           │            │           │           │
-│  sparse   │  +layers  │  maximum   │  -layers  │  fade     │
-│  mood     │  tension  │  energy    │  breathe  │  close    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-- **Intro** — Sparse, establishing mood. Occasional synth notes, minimal drums.
-- **Buildup** — Adding layers. Sequencer starts, more activity.
-- **Peak** — Maximum energy. Dense sequencer, frequent drums, active synth.
-- **Breakdown** — Reducing elements. Breathing room before outro.
-- **Outro** — Fading out. Sparse like intro, session ends.
-
-Session length: 15-45 minutes (random)
-
-## Configuration
-
-### src/config.js
-
-- `session.durationMinutes` — Session length range
-- `tempo.bpm` — BPM range
-- `stateDistribution` — Percentage of session per state
-- `waveforms` — Available synth waveforms
-- `humanize.timing` — Timing variation in ms
-
-### src/states.js
-
-Per-state configuration:
-- Drum probability and available pads
-- Synth probability, note duration, spacing
-- Sequencer density and active tracks
-- FX ranges (reverb, delay, filter)
-
-### src/scales.js
-
-Musical scales grouped by mood:
-- **dark** — Minor scales, Phrygian
-- **bright** — Major scales
-- **neutral** — Pentatonic, Dorian
-
-## File Structure
-
-```
-n0body/
-├── src/
-│   ├── brain.js      # Main N0body class (ES modules)
-│   ├── config.js     # General configuration
-│   ├── scales.js     # Musical scales
-│   ├── states.js     # State configuration
-│   └── utils.js      # Helper functions
-├── dist/
-│   └── n0body.js     # Bundled version (paste in console)
-├── index.html        # Info page
-├── README.md
-└── package.json
-```
+- Sessions are unlimited — n0body plays until you stop it
+- Music is ephemeral — when the session ends, everything disappears
+- The artist evolves — n0body learns and improves across sessions
 
 ## Philosophy
 
-n0body embodies Playground's values:
+The session is ephemeral. The artist evolves.
 
-- **Ephemeral > permanent** — Sessions are not recorded
-- **Imperfection welcome** — Errors and silence are part of the performance
-- **Process visible** — Console logs show n0body's decisions
-- **Zero friction** — Paste and play
+Like a real DJ: doesn't record sets, but gets better every time.
 
-## Technical Notes
+## Usage
 
-- n0body requires the MK1 API (available in mk-1.html)
-- Main loop runs at 100ms intervals
-- Synth scheduling is independent with variable spacing
-- FX changes every 15-30 seconds
-- State transitions are automatic based on session progress
+1. Open: `https://nbronzina.github.io/n0body/`
+2. Click [start]
+3. n0body plays
+4. Click [stop] when you want to end
+5. n0body enters outro and fades out gracefully
 
-## Name
+### Broadcasting
 
-**n0body** (with zero, always lowercase)
+To broadcast n0body to the world:
 
-- Reads as "nobody"
-- The zero reinforces: code, binary, null, non-human
-- Wordplay: "n0body is live" — is no one there, or is n0body performing?
+1. Click [broadcast] in mk-1 (inside the page)
+2. mk-air opens — enable "system audio"
+3. n0body is now live at `https://mk-air.onrender.com/listen`
+
+## How it works
+
+### States
+
+n0body flows through states organically, not on a fixed schedule:
+
+| State | Description | Duration |
+|-------|-------------|----------|
+| intro | Sparse, establishing mood | 30s - 3min |
+| buildup | Adding layers, tension | 1 - 5min |
+| peak | Maximum energy | 1 - 10min |
+| breakdown | Reducing, breathing | 45s - 4min |
+| outro | Fade out (only on stop) | 30 - 60s |
+
+Transitions are probabilistic. n0body might stay in peak for 10 minutes or cycle through buildups. It learns which transitions work well.
+
+### Tools
+
+n0body uses everything mk-1 offers:
+
+- **Drums** — 8 pads
+- **Synth** — notes in scale, 6 waveforms, attack/release
+- **Sequencer** — 8 tracks × 16 steps
+- **FX** — reverb, delay, filter, distortion, chorus, bitcrusher
+- **Looper** — records, plays, layers, fades (all cleared at end)
+- **Tempo** — chosen per session
+
+### Learning
+
+n0body learns across sessions:
+
+- Which drum pads work in each state
+- Which notes sound good in each scale
+- Which FX settings feel right
+- Which state transitions flow well
+
+Knowledge persists in localStorage. Each session, n0body starts a little better.
+
+### Experience levels
+
+| Sessions | Level |
+|----------|-------|
+| 1-4 | newborn |
+| 5-14 | learning |
+| 15-29 | developing |
+| 30-49 | skilled |
+| 50-99 | experienced |
+| 100+ | master |
+
+## Controls
+
+| Command | Action |
+|---------|--------|
+| [start] | Begin session |
+| [stop] | Enter outro and end |
+| [broadcast] | Open mk-air to stream (in mk-1) |
+
+From console (if needed):
+```javascript
+n0body.start()
+n0body.stop()
+n0body.status()
+```
+
+## Status display
+```
+status: playing    state: peak (3:45)    elapsed: 1:23:45
+loops: 2 recorded    experience: 12 sessions · developing
+```
+
+## Reset
+
+To reset n0body to newborn state:
+```javascript
+localStorage.removeItem('n0body_knowledge');
+```
+
+## Part of Playground
+
+n0body is the first artist of [Playground](https://nbronzina.github.io/playground/) — browser-based tools for making sound, ephemeral spaces for sharing it.
+
+- [mk-1](https://nbronzina.github.io/playground/mk-1.html) — the instrument n0body plays
+- [mk-air](https://mk-air.onrender.com/) — where n0body broadcasts
 
 ---
 
