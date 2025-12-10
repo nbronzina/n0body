@@ -356,7 +356,7 @@
                 probability: 0.005,
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0, 8: 0.01 }
             },
-            synth: { probability: 0.02, noteDuration: { min: 2, max: 5 }, noteSpacing: { min: 6000, max: 15000 } },
+            synth: { probability: 0.06, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 4000, max: 10000 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0, max: 0.15 }, crush: { min: 0, max: 0 } },
         },
@@ -365,7 +365,7 @@
                 probability: 0.01,
                 padWeights: { 1: 0.15, 2: 0.08, 3: 0.12, 4: 0.04, 5: 0.03, 6: 0.05, 7: 0.02, 8: 0.04 }
             },
-            synth: { probability: 0.03, noteDuration: { min: 1, max: 3 }, noteSpacing: { min: 3000, max: 8000 } },
+            synth: { probability: 0.10, noteDuration: { min: 0.8, max: 2.5 }, noteSpacing: { min: 2000, max: 5000 } },
             sequencer: { active: true, density: 0.15, tracksActive: [1, 2, 3, 8] },
             fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.15, max: 0.35 }, filter: { min: 0.5, max: 0.7 }, distortion: { min: 0, max: 0.1 }, chorus: { min: 0.1, max: 0.25 }, crush: { min: 0, max: 0 } },
         },
@@ -374,7 +374,7 @@
                 probability: 0.015,
                 padWeights: { 1: 0.20, 2: 0.15, 3: 0.18, 4: 0.08, 5: 0.06, 6: 0.08, 7: 0.05, 8: 0.06 }
             },
-            synth: { probability: 0.05, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 2000, max: 5000 } },
+            synth: { probability: 0.15, noteDuration: { min: 0.3, max: 1.5 }, noteSpacing: { min: 1000, max: 3000 } },
             sequencer: { active: true, density: 0.35, tracksActive: [1, 2, 3, 4, 5, 6, 8] },
             fx: { reverb: { min: 0.5, max: 0.75 }, delay: { min: 0.25, max: 0.5 }, filter: { min: 0.6, max: 0.85 }, distortion: { min: 0.05, max: 0.2 }, chorus: { min: 0.15, max: 0.35 }, crush: { min: 0, max: 0.1 } },
         },
@@ -383,7 +383,7 @@
                 probability: 0.008,
                 padWeights: { 1: 0.08, 2: 0.04, 3: 0.06, 4: 0.03, 5: 0.02, 6: 0.04, 7: 0.01, 8: 0.03 }
             },
-            synth: { probability: 0.03, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 4000, max: 10000 } },
+            synth: { probability: 0.08, noteDuration: { min: 1, max: 3 }, noteSpacing: { min: 2500, max: 6000 } },
             sequencer: { active: true, density: 0.1, tracksActive: [1, 2, 3, 6] },
             fx: { reverb: { min: 0.45, max: 0.6 }, delay: { min: 0.1, max: 0.25 }, filter: { min: 0.35, max: 0.55 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0.1, max: 0.2 }, crush: { min: 0, max: 0 } },
         },
@@ -392,7 +392,7 @@
                 probability: 0.003,
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0.01, 8: 0 }
             },
-            synth: { probability: 0.01, noteDuration: { min: 3, max: 6 }, noteSpacing: { min: 8000, max: 20000 } },
+            synth: { probability: 0.04, noteDuration: { min: 2, max: 5 }, noteSpacing: { min: 5000, max: 12000 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.6, max: 0.8 }, delay: { min: 0, max: 0.1 }, filter: { min: 0.2, max: 0.4 }, distortion: { min: 0, max: 0 }, chorus: { min: 0, max: 0.1 }, crush: { min: 0, max: 0 } },
         },
