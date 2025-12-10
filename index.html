@@ -565,7 +565,7 @@
 
     // State transitions (organic, probability-based) - faster settling
     var STATE_TRANSITIONS = {
-        intro: { minDuration: 20, maxDuration: 90, transitions: { buildup: 0.8, intro: 0.2 } },
+        intro: { minDuration: 20, maxDuration: 90, transitions: { buildup: 0.65, intro: 0.35 } },
         buildup: { minDuration: 45, maxDuration: 180, transitions: { peak: 0.6, buildup: 0.25, breakdown: 0.1, intro: 0.05 } },
         peak: { minDuration: 60, maxDuration: 480, transitions: { peak: 0.55, breakdown: 0.35, buildup: 0.1 } },
         breakdown: { minDuration: 30, maxDuration: 150, transitions: { buildup: 0.55, breakdown: 0.25, intro: 0.15, peak: 0.05 } },
@@ -1081,8 +1081,10 @@
             }
         }
 
-        // First note: start in the middle of the scale
-        this.lastNote = scale[Math.floor(scale.length / 2)];
+        // First note: random start in middle third of scale
+        var midStart = Math.floor(scale.length * 0.33);
+        var midEnd = Math.floor(scale.length * 0.67);
+        this.lastNote = scale[randomIntBetween(midStart, midEnd)];
         return this.lastNote;
     };
 
