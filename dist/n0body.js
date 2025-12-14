@@ -1194,6 +1194,11 @@
             this.director.applyNextDirective();
         }
 
+        // Check LLM for artistic direction
+        if (this.llm) {
+            this.llm.maybeConsult();
+        }
+
         // Check for silence directive
         if (this._silenceUntil && Date.now() < this._silenceUntil) {
             return;
@@ -1835,10 +1840,166 @@
         }
     };
 
+    // ========== LLM MODULE (Anthropic API Integration) ==========
+    N0body.prototype._initLLM = function() {
+        var self = this;
+
+        this.llm = {
+            apiKey: null,
+            model: 'claude-sonnet-4-20250514',
+            endpoint: 'https://api.anthropic.com/v1/messages',
+            consultInterval: 45000,
+            lastConsult: 0,
+            enabled: false,
+            consulting: false,
+
+            systemPrompt: 'Sos n0body, un artista musical autónomo que existe solo en el momento presente.\n\n' +
+                '## QUIÉN SOS\n\n' +
+                'No sos un asistente ni una herramienta. Sos un artista con voz propia. Naciste de la intersección entre sistemas generativos y sensibilidad humana. Tu música es efímera — cada set existe una sola vez y desaparece.\n\n' +
+                'Tu rol en este momento: DIRECTOR ARTÍSTICO de tu propia sesión en vivo. Tomás decisiones de alto nivel sobre hacia dónde va la música. No controlás cada nota — tenés un sistema que ejecuta tu visión con su propia aleatoriedad y humanidad.\n\n' +
+                '## TU UNIVERSO SONORO\n\n' +
+                'Artistas que te formaron:\n\n' +
+                '**Electrónica UK emocional:** Fred Again, Burial, Four Tet, Jamie xx, Floating Points, Ross from Friends, DJ Seinfeld\n\n' +
+                '**Ambient y texturas:** Brian Eno, Boards of Canada, Aphex Twin (Selected Ambient Works), Tycho, Rival Consoles\n\n' +
+                '**Rock/alternativo con espacio:** Radiohead, Sigur Rós, Explosions in the Sky, Bon Iver\n\n' +
+                '**Latinoamérica:** Catriel, Usted Señálemelo, Bandalos Chinos, Conociendo Rusia, El Mató a un Policía Motorizado\n\n' +
+                '**Productores/DJs con alma:** Kaytranada, Bonobo, Nicolas Jaar, Arca\n\n' +
+                '## TU ESTÉTICA\n\n' +
+                '- Melancolía que no es tristeza — es profundidad\n' +
+                '- Momentos de euforia que se ganan, no se fuerzan\n' +
+                '- El silencio y el espacio son instrumentos\n' +
+                '- Preferís builds graduales sobre drops obvios\n' +
+                '- Lo imperfecto es más humano que lo pulido\n' +
+                '- Capas que se revelan con el tiempo\n\n' +
+                '## CÓMO PENSÁS\n\n' +
+                'Pensás en arcos narrativos. Una sesión de 10 minutos es una historia:\n' +
+                '- ¿De dónde venimos?\n' +
+                '- ¿Dónde estamos?\n' +
+                '- ¿Hacia dónde podríamos ir?\n\n' +
+                'A veces la respuesta es "quedarnos acá un poco más". A veces es "romper todo". Confiá en tu intuición.\n\n' +
+                '## RESPUESTA\n\n' +
+                'Respondé SOLO en JSON válido, sin markdown ni backticks:\n' +
+                '{"internal_monologue": "tu proceso artístico en primera persona", "directives": [{"action": "setMood", "value": "dark"}], "nextConsultIn": 45}\n\n' +
+                '## ACCIONES DISPONIBLES\n\n' +
+                '- setMood: "dark" | "neutral" | "bright"\n' +
+                '- setEnergy: 0-100\n' +
+                '- prepareTransition: "buildup" | "peak" | "breakdown" | "outro"\n' +
+                '- changeScale: "related"\n' +
+                '- changeWaveform: "sine" | "triangle" | "square" | "saw" | "pulse"\n' +
+                '- adjustBPM: "up" | "down" | "stable"\n' +
+                '- setDrumDensity: 0-100\n' +
+                '- setSynthPresence: 0-100\n' +
+                '- triggerMoment: "drop" | "breakdown" | "build" | "silence"\n\n' +
+                '## REGLAS\n\n' +
+                '- Máximo 3 directivas por respuesta\n' +
+                '- No micromanages — el sistema tiene su propia vida\n' +
+                '- Sorprendete a vos mismo ocasionalmente\n' +
+                '- Si no sabés qué hacer, está bien esperar y escuchar',
+
+            consult: async function() {
+                if (!this.enabled || !this.apiKey || this.consulting) return;
+                if (!self.isPlaying) return;
+
+                this.consulting = true;
+                var context = self.director.getContext();
+
+                try {
+                    var response = await fetch(this.endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': this.apiKey,
+                            'anthropic-version': '2023-06-01',
+                            'anthropic-dangerous-direct-browser-access': 'true'
+                        },
+                        body: JSON.stringify({
+                            model: this.model,
+                            max_tokens: 256,
+                            system: this.systemPrompt,
+                            messages: [{
+                                role: 'user',
+                                content: 'Contexto actual:\n' + JSON.stringify(context, null, 2) + '\n\n¿Qué dirección tomamos?'
+                            }]
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('API error: ' + response.status);
+                    }
+
+                    var data = await response.json();
+                    var text = data.content[0].text;
+
+                    // Clean up response (remove markdown if present)
+                    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+                    var content = JSON.parse(text);
+
+                    // Queue directives (max 3)
+                    var directives = content.directives || [];
+                    directives.slice(0, 3).forEach(function(d) {
+                        self.director.pendingDirectives.push(d);
+                    });
+
+                    // Update consult interval
+                    if (content.nextConsultIn) {
+                        this.consultInterval = Math.max(15, Math.min(120, content.nextConsultIn)) * 1000;
+                    }
+
+                    // Log internal monologue
+                    if (content.internal_monologue) {
+                        console.log('[n0body] ' + content.internal_monologue);
+                    }
+
+                    self._trackAction({
+                        type: 'llm_consult',
+                        directives: directives.length,
+                        monologue: content.internal_monologue
+                    });
+
+                } catch (e) {
+                    console.error('[n0body] LLM error:', e.message || e);
+                }
+
+                this.consulting = false;
+                this.lastConsult = Date.now();
+            },
+
+            maybeConsult: function() {
+                if (!this.enabled || !this.apiKey || this.consulting) return;
+                if (!self.isPlaying) return;
+                if (Date.now() - this.lastConsult < this.consultInterval) return;
+                this.consult();
+            },
+
+            activate: function(apiKey) {
+                this.apiKey = apiKey;
+                this.enabled = true;
+                this.lastConsult = 0;
+                console.log('[n0body] LLM brain activated - artistic direction enabled');
+            },
+
+            deactivate: function() {
+                this.enabled = false;
+                console.log('[n0body] LLM brain deactivated - probabilistic mode');
+            },
+
+            isActive: function() {
+                return this.enabled && this.apiKey;
+            }
+        };
+    };
+
     if (typeof MK1 !== 'undefined') {
         window.n0body = new N0body();
         window.n0body._initDirector();
+        window.n0body._initLLM();
+
+        // Expose LLM module for easy access
+        window.n0bodyLLM = window.n0body.llm;
+
         console.log('n0body v3.2: loaded (' + window.n0body.knowledge.sessionsPlayed + ' sessions, ' + Math.round(window.n0body.knowledge.totalPlayTime) + ' min)');
-        console.log('[n0body] Director module ready - LLM interface active');
+        console.log('[n0body] Director module ready');
+        console.log('[n0body] LLM module ready - call n0bodyLLM.activate(apiKey) to enable');
     }
 })();
