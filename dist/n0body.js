@@ -1845,14 +1845,14 @@
         }
     };
 
-    // ========== LLM MODULE (Anthropic API Integration) ==========
+    // ========== LLM MODULE (Groq API Integration) ==========
     N0body.prototype._initLLM = function() {
         var self = this;
 
         this.llm = {
             apiKey: null,
-            model: 'claude-sonnet-4-20250514',
-            endpoint: 'https://api.anthropic.com/v1/messages',
+            model: 'llama-3.1-70b-versatile',
+            endpoint: 'https://api.groq.com/openai/v1/chat/completions',
             consultInterval: 45000,
             lastConsult: 0,
             enabled: false,
@@ -1924,18 +1924,22 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'x-api-key': this.apiKey,
-                            'anthropic-version': '2023-06-01',
-                            'anthropic-dangerous-direct-browser-access': 'true'
+                            'Authorization': 'Bearer ' + this.apiKey
                         },
                         body: JSON.stringify({
                             model: this.model,
                             max_tokens: 256,
-                            system: this.systemPrompt,
-                            messages: [{
-                                role: 'user',
-                                content: this._buildPrompt(context)
-                            }]
+                            temperature: 0.9,
+                            messages: [
+                                {
+                                    role: 'system',
+                                    content: this.systemPrompt
+                                },
+                                {
+                                    role: 'user',
+                                    content: this._buildPrompt(context)
+                                }
+                            ]
                         })
                     });
 
@@ -1945,12 +1949,12 @@
 
                     var data = await response.json();
 
-                    // Validate response structure
-                    if (!data.content || !data.content[0] || !data.content[0].text) {
+                    // Validate response structure (OpenAI format)
+                    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
                         throw new Error('Invalid API response structure');
                     }
 
-                    var text = data.content[0].text;
+                    var text = data.choices[0].message.content;
                     // Clean up response (remove markdown if present)
                     text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
