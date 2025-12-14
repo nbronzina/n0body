@@ -492,6 +492,9 @@
 
         this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0, stateTransitions: 0, loopsRecorded: 0 };
 
+        // Recent actions for director context
+        this.recentActions = [];
+
         this.knowledge = loadKnowledge() || initKnowledge();
         this.shortTermMemory = new ShortTermMemory(30);
     }
@@ -677,6 +680,15 @@
         var stateConfig = this.stateTransitions[this.currentState];
         if (!stateConfig || !stateConfig.transitions) return;
 
+        // Check for director-forced next state
+        if (this._forcedNextState && timeInState >= stateConfig.minDuration * 0.5) {
+            var forcedState = this._forcedNextState;
+            this._forcedNextState = null;
+            console.log('n0body: ' + this.currentState + ' -> ' + forcedState + ' (director forced, ' + Math.round(timeInState) + 's)');
+            this._transitionTo(forcedState);
+            return;
+        }
+
         if (timeInState < stateConfig.minDuration) return;
 
         var mustTransition = timeInState >= stateConfig.maxDuration;
@@ -694,7 +706,8 @@
     };
 
     N0body.prototype._transitionTo = function(newState) {
-        var transitionKey = this.currentState + '_to_' + newState;
+        var oldState = this.currentState;
+        var transitionKey = oldState + '_to_' + newState;
         var reward = this._evaluateStateReward();
         this._learnTransition(transitionKey, reward);
 
@@ -708,6 +721,9 @@
         this.stateStartTime = Date.now();
         this.stats.stateTransitions++;
         this._onStateChange(newState);
+
+        // Track for director context
+        this._trackAction({ type: 'transition', from: oldState, to: newState, timeInState: timeInState });
     };
 
     N0body.prototype._adjustTransitionsWithLearning = function(transitions) {
@@ -1173,6 +1189,16 @@
     N0body.prototype._tick = function() {
         if (!this.isPlaying) return;
 
+        // Apply pending director directives
+        if (this.director) {
+            this.director.applyNextDirective();
+        }
+
+        // Check for silence directive
+        if (this._silenceUntil && Date.now() < this._silenceUntil) {
+            return;
+        }
+
         // REST - let the base breathe
         var restChance = this.restProbability[this.currentState] || 0.6;
         if (Math.random() < restChance) {
@@ -1371,12 +1397,15 @@
 
     N0body.prototype._maybePlayDrum = function() {
         var stateConf = this.stateConfig[this.currentState];
-        if (Math.random() < stateConf.drums.probability) {
+        // Apply director density modifier
+        var probability = stateConf.drums.probability * (this._drumDensityModifier || 1.0);
+        if (Math.random() < probability) {
             var pad = this._chooseDrumPad();
             MK1.drums.hit(pad);
             this.stats.drumsPlayed++;
             this._learn({ type: 'drum', pad: pad });
             this._trackEnergy('drum');
+            this._trackAction({ type: 'drum', pad: pad });
         }
     };
 
@@ -1384,13 +1413,16 @@
         if (!this.isPlaying) return;
         var self = this;
         var stateConf = this.stateConfig[this.currentState];
-        if (Math.random() < stateConf.synth.probability) {
+        // Apply director presence modifier
+        var probability = stateConf.synth.probability * (this._synthPresenceModifier || 1.0);
+        if (Math.random() < probability) {
             var note = this._chooseSynthNote();
             var duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
             MK1.synth.play(note, duration);
             this.stats.synthNotesPlayed++;
             this._learn({ type: 'synth', note: note });
             this._trackEnergy('synth');
+            this._trackAction({ type: 'synth', note: note, duration: duration });
         }
         var spacing = randomBetween(stateConf.synth.noteSpacing.min, stateConf.synth.noteSpacing.max);
         var humanized = spacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
@@ -1561,16 +1593,252 @@
     };
 
     N0body.prototype.reset = function() {
+        this.resetLearning();
+    };
+
+    N0body.prototype.resetLearning = function() {
+        // Clear localStorage
         resetKnowledge();
+
+        // Reset knowledge to fresh state
         this.knowledge = initKnowledge();
+
+        // Clear short term memory
         this.shortTermMemory.clear();
-        console.log('n0body: reset to newborn state');
+
+        // Clear recent actions
+        this.recentActions = [];
+
+        // Clear any pending directives
+        if (this.director) {
+            this.director.pendingDirectives = [];
+        }
+
+        console.log('[n0body] Learning reset - new beginning');
+        console.log('[n0body] All weights, rewards, and experience cleared');
+        return true;
     };
 
     N0body.prototype.getKnowledge = function() { return this.knowledge; };
 
+    // ========== DIRECTOR MODULE (LLM Interface) ==========
+    N0body.prototype._initDirector = function() {
+        var self = this;
+
+        this.director = {
+            // Get current context for LLM
+            getContext: function() {
+                return {
+                    currentState: self.currentState,
+                    currentMood: self.currentMood,
+                    currentScale: self.currentScaleName,
+                    currentBPM: self.currentBPM,
+                    currentWaveform: self.currentWaveform,
+                    sessionTime: self.sessionStart ? Math.round((Date.now() - self.sessionStart) / 1000) : 0,
+                    timeInState: self.stateStartTime ? Math.round((Date.now() - self.stateStartTime) / 1000) : 0,
+                    isPlaying: self.isPlaying,
+                    stats: self.stats,
+                    recentActions: self.recentActions.slice(-10)
+                };
+            },
+
+            // Available directives for LLM to call
+            directives: {
+                setMood: function(mood) {
+                    if (['dark', 'neutral', 'bright'].indexOf(mood) !== -1) {
+                        self.currentMood = mood;
+                        console.log('[n0body director] mood -> ' + mood);
+                        return true;
+                    }
+                    return false;
+                },
+
+                setEnergy: function(level) {
+                    // 0-100, affects global probabilities
+                    var factor = clamp(level, 0, 100) / 100;
+                    self._energyModifier = factor;
+                    console.log('[n0body director] energy -> ' + level);
+                    return true;
+                },
+
+                prepareTransition: function(targetState) {
+                    var validStates = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+                    if (validStates.indexOf(targetState) !== -1) {
+                        self._forcedNextState = targetState;
+                        console.log('[n0body director] preparing transition to ' + targetState);
+                        return true;
+                    }
+                    return false;
+                },
+
+                forceTransition: function(targetState) {
+                    var validStates = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+                    if (validStates.indexOf(targetState) !== -1 && self.isPlaying) {
+                        self._transitionTo(targetState);
+                        console.log('[n0body director] forced transition to ' + targetState);
+                        return true;
+                    }
+                    return false;
+                },
+
+                changeScale: function(scale) {
+                    if (scale === 'related') {
+                        var related = RELATED_SCALES[self.currentScaleName];
+                        if (related && related.length > 0) {
+                            var newScale = randomFrom(related);
+                            self.currentScaleName = newScale;
+                            self.currentScale = SCALES[newScale];
+                            self.lastNote = null;
+                            console.log('[n0body director] scale -> ' + newScale + ' (related)');
+                            return true;
+                        }
+                    } else if (SCALES[scale]) {
+                        self.currentScaleName = scale;
+                        self.currentScale = SCALES[scale];
+                        self.lastNote = null;
+                        console.log('[n0body director] scale -> ' + scale);
+                        return true;
+                    }
+                    return false;
+                },
+
+                changeWaveform: function(waveform) {
+                    if (self.config.waveforms.indexOf(waveform) !== -1) {
+                        self.currentWaveform = waveform;
+                        if (typeof MK1 !== 'undefined') {
+                            MK1.synth.setWaveform(waveform);
+                        }
+                        console.log('[n0body director] waveform -> ' + waveform);
+                        return true;
+                    }
+                    return false;
+                },
+
+                adjustBPM: function(direction) {
+                    var delta = 0;
+                    if (direction === 'up') delta = randomBetween(2, 5);
+                    else if (direction === 'down') delta = -randomBetween(2, 5);
+                    else if (direction === 'stable') delta = 0;
+                    else return false;
+
+                    if (delta !== 0) {
+                        var newBPM = clamp(self.currentBPM + delta, self.config.tempo.bpm.min, self.config.tempo.bpm.max);
+                        self._transitionBPM(self.currentBPM, newBPM, 3000);
+                        console.log('[n0body director] BPM ' + direction + ' -> ' + newBPM);
+                    }
+                    return true;
+                },
+
+                setDrumDensity: function(level) {
+                    // 0-100, modifier for drum probability
+                    self._drumDensityModifier = clamp(level, 0, 100) / 50; // 0-2x
+                    console.log('[n0body director] drum density -> ' + level);
+                    return true;
+                },
+
+                setSynthPresence: function(level) {
+                    // 0-100, modifier for synth probability
+                    self._synthPresenceModifier = clamp(level, 0, 100) / 50; // 0-2x
+                    console.log('[n0body director] synth presence -> ' + level);
+                    return true;
+                },
+
+                triggerMoment: function(type) {
+                    if (!self.isPlaying) return false;
+
+                    switch (type) {
+                        case 'drop':
+                            // Cymbal crash + immediate peak energy
+                            if (typeof MK1 !== 'undefined') MK1.drums.hit(7);
+                            self._energyModifier = 1.0;
+                            console.log('[n0body director] triggered DROP');
+                            return true;
+
+                        case 'breakdown':
+                            // Sudden reduction
+                            self._energyModifier = 0.3;
+                            console.log('[n0body director] triggered BREAKDOWN');
+                            return true;
+
+                        case 'build':
+                            // Gradual increase
+                            self._energyModifier = Math.min(1.0, (self._energyModifier || 0.5) + 0.2);
+                            console.log('[n0body director] triggered BUILD');
+                            return true;
+
+                        case 'silence':
+                            // Brief pause
+                            self._silenceUntil = Date.now() + 2000;
+                            console.log('[n0body director] triggered SILENCE');
+                            return true;
+
+                        default:
+                            return false;
+                    }
+                }
+            },
+
+            // Queue of pending directives
+            pendingDirectives: [],
+
+            // Apply next directive from queue
+            applyNextDirective: function() {
+                if (this.pendingDirectives.length === 0) return false;
+
+                var directive = this.pendingDirectives.shift();
+                var action = this.directives[directive.action];
+
+                if (action) {
+                    var result = action(directive.value);
+                    if (result) {
+                        self._trackAction({ type: 'directive', action: directive.action, value: directive.value });
+                    }
+                    return result;
+                }
+                return false;
+            },
+
+            // Queue a directive
+            queue: function(action, value) {
+                this.pendingDirectives.push({ action: action, value: value });
+            },
+
+            // Execute directive immediately
+            execute: function(action, value) {
+                var fn = this.directives[action];
+                if (fn) {
+                    return fn(value);
+                }
+                return false;
+            }
+        };
+
+        // Initialize modifiers
+        this._energyModifier = 0.5;
+        this._drumDensityModifier = 1.0;
+        this._synthPresenceModifier = 1.0;
+        this._forcedNextState = null;
+        this._silenceUntil = 0;
+    };
+
+    // Track action for context
+    N0body.prototype._trackAction = function(action) {
+        this.recentActions.push({
+            type: action.type,
+            detail: action,
+            timestamp: Date.now(),
+            state: this.currentState
+        });
+        // Keep last 50 actions
+        while (this.recentActions.length > 50) {
+            this.recentActions.shift();
+        }
+    };
+
     if (typeof MK1 !== 'undefined') {
         window.n0body = new N0body();
+        window.n0body._initDirector();
         console.log('n0body v3.2: loaded (' + window.n0body.knowledge.sessionsPlayed + ' sessions, ' + Math.round(window.n0body.knowledge.totalPlayTime) + ' min)');
+        console.log('[n0body] Director module ready - LLM interface active');
     }
 })();
