@@ -807,6 +807,11 @@
         this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0, stateTransitions: 0, loopsRecorded: 0 };
         this.shortTermMemory.clear();
 
+        // Reset LLM session memory for new session
+        if (this.llm) {
+            this.llm.resetSessionMemory();
+        }
+
         // Reset looper state
         this.looperRecording = false;
         this.looperRecordingSlot = null;
@@ -2130,6 +2135,7 @@
             maxErrors: 3,
             retryDelay: 5000,
             status: 'inactive',
+            sessionMemory: [],
 
             systemPrompt: 'Sos n0body, un artista musical autónomo que existe solo en el momento presente.\\n\\n' +
                 '## QUIÉN SOS\\n\\n' +
@@ -2155,6 +2161,12 @@
                 '- ¿Dónde estamos?\\n' +
                 '- ¿Hacia dónde podríamos ir?\\n\\n' +
                 'A veces la respuesta es "quedarnos acá un poco más". A veces es "romper todo". Confiá en tu intuición.\\n\\n' +
+                '## MEMORIA DE SESIÓN\\n\\n' +
+                'Vas a recibir un historial de tus decisiones anteriores en esta sesión. Usalo para:\\n' +
+                '- Mantener coherencia narrativa (no repetir lo mismo)\\n' +
+                '- Construir arcos (si venís subiendo energía, tal vez es momento de peak)\\n' +
+                '- Recordar qué probaste (no volver a lo que no funcionó)\\n' +
+                '- Sorprender (si todo viene predecible, romper el patrón)\\n\\n' +
                 '## RESPUESTA\\n\\n' +
                 'Respondé SOLO en JSON válido, sin markdown ni backticks:\\n' +
                 '{"internal_monologue": "tu proceso artístico en primera persona", "directives": [{"action": "setMood", "value": "dark"}], "nextConsultIn": 45}\\n\\n' +
@@ -2196,7 +2208,7 @@
                             system: this.systemPrompt,
                             messages: [{
                                 role: 'user',
-                                content: 'Contexto actual:\\n' + JSON.stringify(context, null, 2) + '\\n\\n¿Qué dirección tomamos?'
+                                content: this._buildPrompt(context)
                             }]
                         })
                     });
@@ -2221,6 +2233,23 @@
                         content = JSON.parse(text);
                     } catch (e) {
                         throw new Error('Invalid JSON from LLM');
+                    }
+
+                    // Store decision in session memory
+                    this.sessionMemory.push({
+                        timestamp: Date.now(),
+                        sessionTime: context.sessionTime,
+                        state: context.currentState,
+                        mood: context.currentMood,
+                        energy: context.stats ? context.stats.energy : null,
+                        decision: {
+                            monologue: content.internal_monologue,
+                            directives: content.directives
+                        }
+                    });
+                    // Keep only last 10 decisions
+                    if (this.sessionMemory.length > 10) {
+                        this.sessionMemory.shift();
                     }
 
                     // Validate and queue directives
@@ -2317,6 +2346,30 @@
                 this.lastConsult = 0;
                 this._notifyStatus();
                 console.log('[n0body] Retrying LLM connection...');
+            },
+
+            resetSessionMemory: function() {
+                this.sessionMemory = [];
+                console.log('[n0body] Session memory cleared');
+            },
+
+            _buildPrompt: function(context) {
+                var prompt = 'Contexto actual:\\n' + JSON.stringify(context, null, 2);
+
+                if (this.sessionMemory.length > 0) {
+                    prompt += '\\n\\nTu historial en esta sesión (decisiones anteriores):\\n';
+
+                    this.sessionMemory.forEach(function(mem) {
+                        var mins = Math.floor(mem.sessionTime / 60);
+                        var secs = String(Math.floor(mem.sessionTime % 60)).padStart(2, '0');
+                        prompt += '\\n[' + mins + ':' + secs + '] ';
+                        prompt += mem.state + '/' + mem.mood + ' → ';
+                        prompt += '"' + (mem.decision.monologue || '').substring(0, 100) + '..."';
+                    });
+                }
+
+                prompt += '\\n\\n¿Qué dirección tomamos?';
+                return prompt;
             }
         };
     };
