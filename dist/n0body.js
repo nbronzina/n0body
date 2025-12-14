@@ -1852,6 +1852,10 @@
             lastConsult: 0,
             enabled: false,
             consulting: false,
+            consecutiveErrors: 0,
+            maxErrors: 3,
+            retryDelay: 5000,
+            status: 'inactive',
 
             systemPrompt: 'Sos n0body, un artista musical autónomo que existe solo en el momento presente.\n\n' +
                 '## QUIÉN SOS\n\n' +
@@ -1924,41 +1928,69 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error('API error: ' + response.status);
+                        throw new Error('API response ' + response.status);
                     }
 
                     var data = await response.json();
-                    var text = data.content[0].text;
 
+                    // Validate response structure
+                    if (!data.content || !data.content[0] || !data.content[0].text) {
+                        throw new Error('Invalid API response structure');
+                    }
+
+                    var text = data.content[0].text;
                     // Clean up response (remove markdown if present)
                     text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-                    var content = JSON.parse(text);
+                    var content;
+                    try {
+                        content = JSON.parse(text);
+                    } catch (e) {
+                        throw new Error('Invalid JSON from LLM');
+                    }
 
-                    // Queue directives (max 3)
-                    var directives = content.directives || [];
-                    directives.slice(0, 3).forEach(function(d) {
-                        self.director.pendingDirectives.push(d);
-                    });
+                    // Validate and queue directives
+                    if (content.directives && Array.isArray(content.directives)) {
+                        content.directives.slice(0, 3).forEach(function(d) {
+                            if (d.action && self.director.directives[d.action]) {
+                                self.director.queue(d.action, d.value);
+                            }
+                        });
+                    }
 
                     // Update consult interval
-                    if (content.nextConsultIn) {
-                        this.consultInterval = Math.max(15, Math.min(120, content.nextConsultIn)) * 1000;
-                    }
+                    this.consultInterval = (content.nextConsultIn || 45) * 1000;
+                    this.consultInterval = Math.max(15000, Math.min(120000, this.consultInterval));
 
                     // Log internal monologue
-                    if (content.internal_monologue) {
-                        console.log('[n0body] ' + content.internal_monologue);
-                    }
+                    console.log('[n0body]', content.internal_monologue || '...');
 
                     self._trackAction({
                         type: 'llm_consult',
-                        directives: directives.length,
+                        directives: (content.directives || []).length,
                         monologue: content.internal_monologue
                     });
 
+                    // Reset errors on success
+                    this.consecutiveErrors = 0;
+                    this.status = 'active';
+                    this._notifyStatus();
+
                 } catch (e) {
                     console.error('[n0body] LLM error:', e.message || e);
+                    this.consecutiveErrors++;
+
+                    if (this.consecutiveErrors >= this.maxErrors) {
+                        console.warn('[n0body] Too many errors, falling back to probabilistic mode');
+                        this.status = 'fallback';
+                        this.enabled = false;
+                        this._notifyStatus();
+                    } else {
+                        this.status = 'error';
+                        this._notifyStatus();
+                        // Retry sooner
+                        this.consultInterval = this.retryDelay;
+                    }
                 }
 
                 this.consulting = false;
@@ -1975,17 +2007,42 @@
             activate: function(apiKey) {
                 this.apiKey = apiKey;
                 this.enabled = true;
+                this.consecutiveErrors = 0;
+                this.status = 'active';
                 this.lastConsult = 0;
+                this._notifyStatus();
                 console.log('[n0body] LLM brain activated - artistic direction enabled');
             },
 
             deactivate: function() {
                 this.enabled = false;
+                this.status = 'inactive';
+                this._notifyStatus();
                 console.log('[n0body] LLM brain deactivated - probabilistic mode');
             },
 
             isActive: function() {
                 return this.enabled && this.apiKey;
+            },
+
+            _notifyStatus: function() {
+                var event = new CustomEvent('n0body-llm-status', {
+                    detail: { status: this.status, errors: this.consecutiveErrors }
+                });
+                window.dispatchEvent(event);
+            },
+
+            retry: function() {
+                if (!this.apiKey) {
+                    console.warn('[n0body] No API key set');
+                    return;
+                }
+                this.consecutiveErrors = 0;
+                this.enabled = true;
+                this.status = 'active';
+                this.lastConsult = 0;
+                this._notifyStatus();
+                console.log('[n0body] Retrying LLM connection...');
             }
         };
     };
