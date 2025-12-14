@@ -165,6 +165,49 @@
             background: #6b7280;
         }
 
+        /* ========== LLM CONFIG UI ========== */
+
+        .llm-config {
+            padding: 0.5rem 1.5rem;
+            font-size: 0.75rem;
+            opacity: 0.7;
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .llm-config input {
+            background: transparent;
+            border: 1px solid #333;
+            color: inherit;
+            padding: 4px 8px;
+            font-family: inherit;
+            font-size: inherit;
+            width: 200px;
+        }
+
+        .llm-config input::placeholder {
+            color: #555;
+        }
+
+        .llm-config button {
+            background: transparent;
+            border: 1px solid #333;
+            color: inherit;
+            padding: 4px 8px;
+            font-family: inherit;
+            font-size: inherit;
+            cursor: pointer;
+        }
+
+        .llm-config button:hover {
+            border-color: #666;
+        }
+
+        .llm-status-text {
+            color: #4ade80;
+        }
+
         /* ========== IFRAME CONTAINER ========== */
 
         .iframe-container {
@@ -274,6 +317,16 @@
             <span class="llm-dot"></span>
             <span class="status-value">brain</span>
         </div>
+    </div>
+
+    <div id="llmConfig" class="llm-config">
+        <input type="password" id="llmApiKey" placeholder="anthropic api key">
+        <button id="llmSaveKey">activar brain</button>
+    </div>
+
+    <div id="llmActive" class="llm-config" style="display: none;">
+        <span class="llm-status-text">brain activo</span>
+        <button id="llmClearKey">desactivar</button>
     </div>
 
     <div class="iframe-container">
@@ -2404,8 +2457,14 @@
         const bpmValue = document.getElementById('bpmValue');
         const experienceValue = document.getElementById('experienceValue');
         const llmIndicator = document.getElementById('llmIndicator');
+        const llmConfig = document.getElementById('llmConfig');
+        const llmActive = document.getElementById('llmActive');
+        const llmApiKey = document.getElementById('llmApiKey');
+        const llmSaveKey = document.getElementById('llmSaveKey');
+        const llmClearKey = document.getElementById('llmClearKey');
 
         let n0bodyRef = null;
+        let n0bodyLLMRef = null;
         let statusInterval = null;
 
         // ========== LLM STATUS LISTENER ==========
@@ -2490,6 +2549,17 @@
 
             // Start status updates
             statusInterval = setInterval(updateStatus, 500);
+
+            // Get reference to LLM module
+            n0bodyLLMRef = iframe.contentWindow.n0bodyLLM;
+
+            // Auto-load API key from localStorage
+            const savedKey = localStorage.getItem('n0body-llm-key');
+            if (savedKey && n0bodyLLMRef) {
+                n0bodyLLMRef.activate(savedKey);
+                llmConfig.style.display = 'none';
+                llmActive.style.display = 'flex';
+            }
         }
 
         function showError(message) {
@@ -2526,6 +2596,28 @@
             n0bodyRef.stop();
             startBtn.disabled = false;
             stopBtn.disabled = true;
+        };
+
+        // ========== LLM API KEY CONTROLS ==========
+
+        llmSaveKey.onclick = () => {
+            const key = llmApiKey.value.trim();
+            if (key && n0bodyLLMRef) {
+                localStorage.setItem('n0body-llm-key', key);
+                n0bodyLLMRef.activate(key);
+                llmConfig.style.display = 'none';
+                llmActive.style.display = 'flex';
+                llmApiKey.value = '';
+            }
+        };
+
+        llmClearKey.onclick = () => {
+            localStorage.removeItem('n0body-llm-key');
+            if (n0bodyLLMRef) {
+                n0bodyLLMRef.deactivate();
+            }
+            llmConfig.style.display = 'flex';
+            llmActive.style.display = 'none';
         };
 
         // ========== STATUS UPDATES ==========
