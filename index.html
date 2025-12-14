@@ -327,6 +327,7 @@
     <div id="llmActive" class="llm-config" style="display: none;">
         <span class="llm-status-text">brain activo</span>
         <button id="llmClearKey">desactivar</button>
+        <button id="llmReset">reset</button>
     </div>
 
     <div class="iframe-container">
@@ -2466,6 +2467,7 @@
         const llmApiKey = document.getElementById('llmApiKey');
         const llmSaveKey = document.getElementById('llmSaveKey');
         const llmClearKey = document.getElementById('llmClearKey');
+        const llmReset = document.getElementById('llmReset');
 
         let n0bodyRef = null;
         let n0bodyLLMRef = null;
@@ -2622,6 +2624,18 @@
             }
             llmConfig.style.display = 'flex';
             llmActive.style.display = 'none';
+        };
+
+        llmReset.onclick = () => {
+            if (confirm('¿Resetear todo el aprendizaje? n0body empezará de cero.')) {
+                if (n0bodyRef) {
+                    n0bodyRef.resetLearning();
+                }
+                if (n0bodyLLMRef) {
+                    n0bodyLLMRef.resetSessionMemory();
+                }
+                location.reload();
+            }
         };
 
         // ========== STATUS UPDATES ==========
