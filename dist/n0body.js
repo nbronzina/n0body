@@ -1808,7 +1808,8 @@
 
                 setDrumPattern: function(pattern) {
                     if (typeof MK1 === 'undefined') return false;
-                    var tracks = { kick: 0, snare: 1, hihat: 2, perc: 3 };
+                    // mk-1 tracks: 1=kick, 2=snare, 3=hihat, 4=clap, 5=tom1, 6=perc, 7=cymbal, 8=rim
+                    var tracks = { kick: 1, snare: 2, hihat: 3, clap: 4, tom1: 5, perc: 6, cymbal: 7, rim: 8 };
                     var patternsApplied = [];
                     for (var drum in pattern) {
                         if (tracks[drum] !== undefined) {
@@ -1817,7 +1818,7 @@
                                 steps = steps.split('').map(function(c) { return c === 'x' || c === '1' ? 1 : 0; });
                             }
                             for (var i = 0; i < 16 && i < steps.length; i++) {
-                                MK1.sequencer.setStep(tracks[drum], i, steps[i] === 1);
+                                MK1.sequencer.setStep(tracks[drum], i + 1, steps[i] === 1);
                             }
                             patternsApplied.push(drum);
                         }
@@ -1833,9 +1834,10 @@
 
                 playSynthPhrase: function(phrase) {
                     if (typeof MK1 === 'undefined') return false;
+                    // phrase: ["C4", "E4", "G4"] or [{ note: "C4", duration: 0.25, delay: 0 }, ...]
                     if (!Array.isArray(phrase) || phrase.length === 0) return false;
                     var normalizedPhrase = phrase.map(function(n, i) {
-                        if (typeof n === 'number') return { note: n, duration: 0.25, delay: i * 0.3 };
+                        if (typeof n === 'string') return { note: n, duration: 0.25, delay: i * 0.3 };
                         return { note: n.note, duration: n.duration || 0.25, delay: n.delay !== undefined ? n.delay : i * 0.3 };
                     });
                     normalizedPhrase.forEach(function(n) {
@@ -1848,18 +1850,6 @@
                     return true;
                 },
 
-                controlLooper: function(config) {
-                    if (typeof MK1 === 'undefined' || !MK1.looper) return false;
-                    var slot = config.slot || 0;
-                    switch (config.action) {
-                        case 'record': if (MK1.looper.record) { MK1.looper.record(slot); console.log('[n0body director] looper REC slot ' + slot); return true; } break;
-                        case 'play': if (MK1.looper.play) { MK1.looper.play(slot); console.log('[n0body director] looper PLAY slot ' + slot); return true; } break;
-                        case 'stop': if (MK1.looper.stopRecording) { MK1.looper.stopRecording(); console.log('[n0body director] looper STOP'); return true; } break;
-                        case 'clear': if (MK1.looper.clear) { MK1.looper.clear(slot); console.log('[n0body director] looper CLEAR slot ' + slot); return true; } break;
-                    }
-                    return false;
-                },
-
                 setBPM: function(bpm) {
                     var targetBPM = clamp(bpm, self.config.tempo.bpm.min, self.config.tempo.bpm.max);
                     self._transitionBPM(self.currentBPM, targetBPM, 2000);
@@ -1869,7 +1859,8 @@
 
                 hitDrum: function(drums) {
                     if (typeof MK1 === 'undefined') return false;
-                    var drumMap = { kick: 0, snare: 1, hihat: 2, perc: 3, tom1: 4, tom2: 5, clap: 6, cymbal: 7 };
+                    // mk-1 drum mapping: 1-indexed
+                    var drumMap = { kick: 1, snare: 2, hihat: 3, clap: 4, tom1: 5, perc: 6, cymbal: 7, rim: 8 };
                     var toHit = [];
                     if (typeof drums === 'string') toHit = [drums];
                     else if (Array.isArray(drums)) toHit = drums;
@@ -1877,6 +1868,14 @@
                     toHit.forEach(function(d) { if (drumMap[d] !== undefined) MK1.drums.hit(drumMap[d]); });
                     if (toHit.length > 0) { console.log('[n0body director] hit: ' + toHit.join('+')); return true; }
                     return false;
+                },
+
+                setSynthEnvelope: function(config) {
+                    if (typeof MK1 === 'undefined') return false;
+                    if (config.attack !== undefined) MK1.synth.setAttack(config.attack);
+                    if (config.release !== undefined) MK1.synth.setRelease(config.release);
+                    console.log('[n0body director] envelope -> attack:' + (config.attack || '-') + ' release:' + (config.release || '-'));
+                    return true;
                 },
 
                 // ========== PATTERN MEMORY ==========
@@ -2121,14 +2120,14 @@
                 '- prepareTransition: "buildup" | "peak" | "breakdown" | "outro"\n' +
                 '- triggerMoment: "drop" | "breakdown" | "build" | "silence"\n\n' +
                 '**Direct MK-1 control:**\n' +
-                '- setBPM: 80-130 (exact tempo)\n' +
-                '- setDrumPattern: { kick: "x...x...", snare: "....x...", hihat: "x.x.x.x.", perc: "..x...x." } (16 steps, x=hit)\n' +
-                '- hitDrum: "kick" | "snare" | "hihat" | "clap" | "cymbal" | ["kick", "snare"]\n' +
-                '- playSynthPhrase: [60, 62, 64, 67] (MIDI notes) or [{"note": 60, "duration": 0.5}]\n' +
-                '- changeWaveform: "sine" | "triangle" | "square" | "saw" | "pulse"\n' +
+                '- setBPM: 60-200 (exact tempo)\n' +
+                '- setDrumPattern: { kick: "x...x...", snare: "....x...", hihat: "x.x.x.x.", clap: "...", tom1: "...", perc: "...", cymbal: "...", rim: "..." } (16 steps, x=hit)\n' +
+                '- hitDrum: "kick" | "snare" | "hihat" | "clap" | "tom1" | "perc" | "cymbal" | "rim"\n' +
+                '- playSynthPhrase: ["C4", "E4", "G4"] (note names C2-C7) or [{"note": "C4", "duration": 0.5}]\n' +
+                '- changeWaveform: "sine" | "triangle" | "square" | "saw" | "pulse" | "noise"\n' +
+                '- setSynthEnvelope: { attack: 0-1, release: 0-1 }\n' +
                 '- changeScale: "cMinor" | "aMinor" | "dDorian" | "related"\n' +
-                '- setFX: { reverb: 0.5, delay: 0.3, filter: 0.7, distortion: 0.2, chorus: 0.1, crush: 0 }\n' +
-                '- controlLooper: { action: "record" | "play" | "stop" | "clear", slot: 0-3 }\n\n' +
+                '- setFX: { reverb: 0.5, delay: 0.3, filter: 0.7, distortion: 0.2, chorus: 0.1, crush: 0 }\n\n' +
                 '**Pattern memory (your learned recipes):**\n' +
                 '- savePattern: "dark_groove_1" (save current setup)\n' +
                 '- recallPattern: "dark_groove_1" (load a saved pattern)\n' +
