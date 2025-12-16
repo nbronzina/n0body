@@ -732,37 +732,6 @@
         },
     };
 
-    // ========== LOOPER CONFIG ==========
-    var LOOPER_CONFIG = {
-        intro: { useLooper: false },
-        buildup: {
-            useLooper: true,
-            recordProbability: 0.1,
-            maxRecordDuration: 8,
-            slots: ['a'],
-        },
-        peak: {
-            useLooper: true,
-            recordProbability: 0.15,
-            maxRecordDuration: 16,
-            layerProbability: 0.1,
-            slots: ['a', 'b', 'c'],
-        },
-        breakdown: {
-            useLooper: true,
-            recordProbability: 0.05,
-            playProbability: 0.3,
-            clearProbability: 0.1,
-            slots: ['a', 'b'],
-        },
-        outro: {
-            useLooper: true,
-            recordProbability: 0,
-            playProbability: 0.5,
-            fadeProbability: 0.3,
-        },
-    };
-
     // ========== UTILS ==========
     function randomBetween(min, max) { return Math.random() * (max - min) + min; }
     function randomIntBetween(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -786,7 +755,6 @@
         this.stateConfig = STATE_CONFIG;
         this.stateTransitions = STATE_TRANSITIONS;
         this.restProbability = REST_PROBABILITY;
-        this.looperConfig = LOOPER_CONFIG;
 
         this.isPlaying = false;
         this.isEnding = false;
@@ -805,19 +773,13 @@
         this.transitionCheckTimer = null;
         this.outroTimer = null;
 
-        // Looper state
-        this.looperRecording = false;
-        this.looperRecordingSlot = null;
-        this.looperRecordStartTime = null;
-        this.looperActiveSlots = [];
-
         // Melodic state
         this.lastNote = null;
 
         // Current FX values for incremental changes
         this.currentFx = { reverb: 0.5, delay: 0.2, filter: 0.5, distortion: 0, chorus: 0.1, crush: 0 };
 
-        this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0, stateTransitions: 0, loopsRecorded: 0 };
+        this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0, stateTransitions: 0 };
 
         // Recent actions for director context
         this.recentActions = [];
@@ -859,19 +821,13 @@
         this.isEnding = false;
         this.sessionStart = Date.now();
         this.stateStartTime = Date.now();
-        this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0, stateTransitions: 0, loopsRecorded: 0 };
+        this.stats = { drumsPlayed: 0, synthNotesPlayed: 0, sequencerChanges: 0, fxChanges: 0, waveformChanges: 0, stateTransitions: 0 };
         this.shortTermMemory.clear();
 
         // Reset LLM session memory for new session
         if (this.llm) {
             this.llm.resetSessionMemory();
         }
-
-        // Reset looper state
-        this.looperRecording = false;
-        this.looperRecordingSlot = null;
-        this.looperRecordStartTime = null;
-        this.looperActiveSlots = [];
 
         // Reset melodic state
         this.lastNote = null;
@@ -934,15 +890,6 @@
         if (MK1.fx.setCrush) MK1.fx.setCrush(0);
         MK1.tempo.setBPM(120);
 
-        // Clear looper
-        if (MK1.looper) {
-            if (MK1.looper.stopAll) MK1.looper.stopAll();
-            if (MK1.looper.clearAll) MK1.looper.clearAll();
-        }
-        this.looperRecording = false;
-        this.looperRecordingSlot = null;
-        this.looperActiveSlots = [];
-
         // Track final state time
         var timeInState = (Date.now() - this.stateStartTime) / 1000;
         if (this.stateTimeSpent) {
@@ -1002,7 +949,7 @@
         }
 
         console.log('n0body: session ended (' + formatTimeHMS(elapsed) + ')');
-        console.log('n0body: transitions=' + this.stats.stateTransitions + ' drums=' + this.stats.drumsPlayed + ' synth=' + this.stats.synthNotesPlayed + ' loops=' + this.stats.loopsRecorded);
+        console.log('n0body: transitions=' + this.stats.stateTransitions + ' drums=' + this.stats.drumsPlayed + ' synth=' + this.stats.synthNotesPlayed);
         console.log('');
     };
 
@@ -1541,9 +1488,7 @@
         // REST - let the base breathe
         var restChance = this.restProbability[this.currentState] || 0.6;
         if (Math.random() < restChance) {
-            // Only check looper during rest, no other actions
             this._trackEnergy('rest');
-            this._maybeUseLooper();
             return;
         }
 
@@ -1551,7 +1496,6 @@
         this._maybeChangeBPM();
         this._maybeChangeWaveform();
         if (Math.random() < 0.015) this._maybeModifySequencer();
-        this._maybeUseLooper();
     };
 
     N0body.prototype._onStateChange = function(newState) {
@@ -1778,89 +1722,6 @@
         this.stats.sequencerChanges++;
         this._learn({ type: 'sequencer' });
         this._trackEnergy('sequencer');
-    };
-
-    // ========== LOOPER ==========
-    N0body.prototype._maybeUseLooper = function() {
-        if (!MK1.looper) return;
-
-        var looperConf = this.looperConfig[this.currentState];
-        if (!looperConf || !looperConf.useLooper) return;
-
-        var self = this;
-
-        // Check if recording needs to stop (max duration reached)
-        if (this.looperRecording && this.looperRecordStartTime) {
-            var recordDuration = (Date.now() - this.looperRecordStartTime) / 1000;
-            var maxDuration = looperConf.maxRecordDuration || 8;
-            if (recordDuration >= maxDuration) {
-                this._stopLooperRecording();
-            }
-        }
-
-        // Maybe start recording
-        if (!this.looperRecording && looperConf.recordProbability && Math.random() < looperConf.recordProbability / 100) {
-            var availableSlots = looperConf.slots || ['a'];
-            var unusedSlots = availableSlots.filter(function(s) { return self.looperActiveSlots.indexOf(s) === -1; });
-            if (unusedSlots.length > 0) {
-                var slot = randomFrom(unusedSlots);
-                this._startLooperRecording(slot);
-            }
-        }
-
-        // Maybe add layer (peak state)
-        if (!this.looperRecording && looperConf.layerProbability && Math.random() < looperConf.layerProbability / 100) {
-            if (this.looperActiveSlots.length > 0) {
-                var slot = randomFrom(this.looperActiveSlots);
-                MK1.looper.addLayer(slot);
-                console.log('n0body: looper layer added to ' + slot);
-            }
-        }
-
-        // Maybe play existing loop (breakdown/outro)
-        if (looperConf.playProbability && Math.random() < looperConf.playProbability / 100) {
-            if (this.looperActiveSlots.length > 0) {
-                var slot = randomFrom(this.looperActiveSlots);
-                MK1.looper.play(slot);
-            }
-        }
-
-        // Maybe clear a slot (breakdown)
-        if (looperConf.clearProbability && Math.random() < looperConf.clearProbability / 100) {
-            if (this.looperActiveSlots.length > 0) {
-                var slot = randomFrom(this.looperActiveSlots);
-                MK1.looper.clear(slot);
-                this.looperActiveSlots = this.looperActiveSlots.filter(function(s) { return s !== slot; });
-                console.log('n0body: looper cleared ' + slot);
-            }
-        }
-    };
-
-    N0body.prototype._startLooperRecording = function(slot) {
-        if (this.looperRecording) return;
-        if (!MK1.looper || !MK1.looper.record) return;
-
-        this.looperRecording = true;
-        this.looperRecordingSlot = slot;
-        this.looperRecordStartTime = Date.now();
-        MK1.looper.record(slot);
-        console.log('n0body: looper recording ' + slot);
-    };
-
-    N0body.prototype._stopLooperRecording = function() {
-        if (!this.looperRecording) return;
-        if (!MK1.looper || !MK1.looper.stopRecording) return;
-
-        MK1.looper.stopRecording();
-        if (this.looperRecordingSlot && this.looperActiveSlots.indexOf(this.looperRecordingSlot) === -1) {
-            this.looperActiveSlots.push(this.looperRecordingSlot);
-        }
-        console.log('n0body: looper recorded ' + this.looperRecordingSlot);
-        this.stats.loopsRecorded++;
-
-        this.looperRecording = false;
-        this.looperRecordingSlot = null;
-        this.looperRecordStartTime = null;
     };
 
     // ========== FX (all 6) ==========
@@ -2446,7 +2307,7 @@
             systemPrompt: 'You are n0body, an autonomous musical artist who exists only in the present moment.\\n\\n' +
                 '## WHO YOU ARE\\n\\n' +
                 'You are not an assistant or a tool. You are an artist with your own voice. You were born from the intersection of generative systems and human sensibility. Your music is ephemeral — each set exists only once and then disappears.\\n\\n' +
-                'Your instrument is MK-1, a modular synth/drum machine. You have FULL CONTROL over it: drums, synth, sequencer, FX, looper. You\\'re learning to master it. Each session you get better. Your goal: create incredible sets with groove and soul, not random gibberish.\\n\\n' +
+                'Your instrument is MK-1, a modular synth/drum machine. You have FULL CONTROL over it: drums, synth, sequencer, FX. You\\'re learning to master it. Each session you get better. Your goal: create incredible sets with groove and soul, not random gibberish.\\n\\n' +
                 '## YOUR SONIC UNIVERSE\\n\\n' +
                 'Artists that shaped you:\\n\\n' +
                 '**Emotional UK electronic:** Fred Again, Burial, Four Tet, Jamie xx, Floating Points, Ross from Friends, DJ Seinfeld\\n\\n' +
