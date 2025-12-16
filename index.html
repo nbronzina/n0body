@@ -2114,6 +2114,192 @@
                         default:
                             return false;
                     }
+                },
+
+                // ========== DIRECT MK-1 CONTROL ==========
+
+                // Direct FX control - specific values (0-1)
+                setFX: function(fxConfig) {
+                    if (typeof MK1 === 'undefined') return false;
+                    var applied = [];
+                    if (fxConfig.reverb !== undefined) { MK1.fx.setReverb(clamp(fxConfig.reverb, 0, 1)); applied.push('reverb:' + fxConfig.reverb); }
+                    if (fxConfig.delay !== undefined) { MK1.fx.setDelay(clamp(fxConfig.delay, 0, 1)); applied.push('delay:' + fxConfig.delay); }
+                    if (fxConfig.filter !== undefined) { MK1.fx.setFilter(clamp(fxConfig.filter, 0, 1)); applied.push('filter:' + fxConfig.filter); }
+                    if (fxConfig.distortion !== undefined && MK1.fx.setDistortion) { MK1.fx.setDistortion(clamp(fxConfig.distortion, 0, 1)); applied.push('dist:' + fxConfig.distortion); }
+                    if (fxConfig.chorus !== undefined && MK1.fx.setChorus) { MK1.fx.setChorus(clamp(fxConfig.chorus, 0, 1)); applied.push('chorus:' + fxConfig.chorus); }
+                    if (fxConfig.crush !== undefined && MK1.fx.setCrush) { MK1.fx.setCrush(clamp(fxConfig.crush, 0, 1)); applied.push('crush:' + fxConfig.crush); }
+                    if (applied.length > 0) {
+                        console.log('[n0body director] FX -> ' + applied.join(', '));
+                        self._currentFX = fxConfig;
+                        return true;
+                    }
+                    return false;
+                },
+
+                // Direct drum pattern - 16 step sequencer
+                setDrumPattern: function(pattern) {
+                    if (typeof MK1 === 'undefined') return false;
+                    // pattern: { kick: "x...x...", snare: "....x...", hihat: "x.x.x.x." }
+                    var tracks = { kick: 0, snare: 1, hihat: 2, perc: 3 };
+                    var patternsApplied = [];
+
+                    for (var drum in pattern) {
+                        if (tracks[drum] !== undefined) {
+                            var steps = pattern[drum];
+                            if (typeof steps === 'string') {
+                                steps = steps.split('').map(function(c) { return c === 'x' || c === '1' ? 1 : 0; });
+                            }
+                            for (var i = 0; i < 16 && i < steps.length; i++) {
+                                MK1.sequencer.setStep(tracks[drum], i, steps[i] === 1);
+                            }
+                            patternsApplied.push(drum);
+                        }
+                    }
+
+                    if (patternsApplied.length > 0) {
+                        console.log('[n0body director] drum pattern -> ' + patternsApplied.join(', '));
+                        self._currentDrumPattern = pattern;
+                        self._trackPattern('drum', pattern);
+                        return true;
+                    }
+                    return false;
+                },
+
+                // Play synth phrase - sequence of notes
+                playSynthPhrase: function(phrase) {
+                    if (typeof MK1 === 'undefined') return false;
+                    // phrase: [60, 62, 64] or [{ note: 60, duration: 0.25, delay: 0 }, ...]
+                    if (!Array.isArray(phrase) || phrase.length === 0) return false;
+
+                    var normalizedPhrase = phrase.map(function(n, i) {
+                        if (typeof n === 'number') {
+                            return { note: n, duration: 0.25, delay: i * 0.3 };
+                        }
+                        return { note: n.note, duration: n.duration || 0.25, delay: n.delay !== undefined ? n.delay : i * 0.3 };
+                    });
+
+                    normalizedPhrase.forEach(function(n) {
+                        setTimeout(function() {
+                            if (self.isPlaying) MK1.synth.play(n.note, n.duration);
+                        }, n.delay * 1000);
+                    });
+
+                    console.log('[n0body director] synth phrase -> ' + normalizedPhrase.length + ' notes');
+                    self._trackPattern('synth', normalizedPhrase);
+                    return true;
+                },
+
+                // Looper control
+                controlLooper: function(config) {
+                    if (typeof MK1 === 'undefined' || !MK1.looper) return false;
+                    var slot = config.slot || 0;
+
+                    switch (config.action) {
+                        case 'record':
+                            if (MK1.looper.record) { MK1.looper.record(slot); console.log('[n0body director] looper REC slot ' + slot); return true; }
+                            break;
+                        case 'play':
+                            if (MK1.looper.play) { MK1.looper.play(slot); console.log('[n0body director] looper PLAY slot ' + slot); return true; }
+                            break;
+                        case 'stop':
+                            if (MK1.looper.stopRecording) { MK1.looper.stopRecording(); console.log('[n0body director] looper STOP'); return true; }
+                            break;
+                        case 'clear':
+                            if (MK1.looper.clear) { MK1.looper.clear(slot); console.log('[n0body director] looper CLEAR slot ' + slot); return true; }
+                            break;
+                    }
+                    return false;
+                },
+
+                // Set exact BPM
+                setBPM: function(bpm) {
+                    var targetBPM = clamp(bpm, self.config.tempo.bpm.min, self.config.tempo.bpm.max);
+                    self._transitionBPM(self.currentBPM, targetBPM, 2000);
+                    console.log('[n0body director] BPM -> ' + targetBPM);
+                    return true;
+                },
+
+                // Hit specific drums directly
+                hitDrum: function(drums) {
+                    if (typeof MK1 === 'undefined') return false;
+                    var drumMap = { kick: 0, snare: 1, hihat: 2, perc: 3, tom1: 4, tom2: 5, clap: 6, cymbal: 7 };
+                    var toHit = [];
+
+                    if (typeof drums === 'string') toHit = [drums];
+                    else if (Array.isArray(drums)) toHit = drums;
+                    else if (typeof drums === 'object') toHit = Object.keys(drums).filter(function(k) { return drums[k]; });
+
+                    toHit.forEach(function(d) {
+                        if (drumMap[d] !== undefined) MK1.drums.hit(drumMap[d]);
+                    });
+
+                    if (toHit.length > 0) {
+                        console.log('[n0body director] hit: ' + toHit.join('+'));
+                        return true;
+                    }
+                    return false;
+                },
+
+                // ========== PATTERN MEMORY ==========
+
+                // Save current setup as pattern
+                savePattern: function(name) {
+                    if (!name) return false;
+                    var pattern = {
+                        name: name,
+                        timestamp: Date.now(),
+                        state: self.currentState,
+                        mood: self.currentMood,
+                        bpm: self.currentBPM,
+                        scale: self.currentScaleName,
+                        waveform: self.currentWaveform,
+                        fx: self._currentFX || {},
+                        drumPattern: self._currentDrumPattern || {},
+                        energy: self._energyModifier,
+                        timesUsed: 0,
+                        rating: 0
+                    };
+
+                    if (!self.knowledge.savedPatterns) self.knowledge.savedPatterns = {};
+                    self.knowledge.savedPatterns[name] = pattern;
+                    console.log('[n0body director] SAVED pattern: ' + name);
+                    return true;
+                },
+
+                // Recall saved pattern
+                recallPattern: function(name) {
+                    if (!self.knowledge.savedPatterns || !self.knowledge.savedPatterns[name]) {
+                        console.log('[n0body director] pattern not found: ' + name);
+                        return false;
+                    }
+                    var p = self.knowledge.savedPatterns[name];
+
+                    if (p.waveform) this.changeWaveform(p.waveform);
+                    if (p.fx && Object.keys(p.fx).length > 0) this.setFX(p.fx);
+                    if (p.drumPattern && Object.keys(p.drumPattern).length > 0) this.setDrumPattern(p.drumPattern);
+                    if (p.energy !== undefined) self._energyModifier = p.energy;
+                    if (p.bpm) this.setBPM(p.bpm);
+
+                    p.timesUsed = (p.timesUsed || 0) + 1;
+                    console.log('[n0body director] RECALLED pattern: ' + name + ' (used ' + p.timesUsed + 'x)');
+                    return true;
+                },
+
+                // Rate a pattern (for learning)
+                ratePattern: function(name, rating) {
+                    if (!self.knowledge.savedPatterns || !self.knowledge.savedPatterns[name]) return false;
+                    self.knowledge.savedPatterns[name].rating = clamp(rating, -1, 1);
+                    console.log('[n0body director] rated ' + name + ': ' + rating);
+                    return true;
+                },
+
+                // List saved patterns
+                listPatterns: function() {
+                    if (!self.knowledge.savedPatterns) return [];
+                    return Object.keys(self.knowledge.savedPatterns).map(function(name) {
+                        var p = self.knowledge.savedPatterns[name];
+                        return { name: name, mood: p.mood, state: p.state, rating: p.rating, timesUsed: p.timesUsed };
+                    });
                 }
             },
 
@@ -2174,6 +2360,82 @@
         }
     };
 
+    // Track patterns for learning
+    N0body.prototype._trackPattern = function(type, pattern) {
+        if (!this._sessionPatterns) this._sessionPatterns = [];
+        this._sessionPatterns.push({
+            type: type,
+            pattern: pattern,
+            timestamp: Date.now(),
+            state: this.currentState,
+            mood: this.currentMood,
+            energy: this._energyModifier
+        });
+        // Keep last 20 patterns this session
+        while (this._sessionPatterns.length > 20) {
+            this._sessionPatterns.shift();
+        }
+    };
+
+    // Get musical feedback metrics
+    N0body.prototype._getMusicalFeedback = function() {
+        var feedback = {
+            rhythmConsistency: 0,
+            patternVariety: 0,
+            energyFlow: 0,
+            transitionSmooth: 0
+        };
+
+        // Analyze recent actions for rhythm consistency
+        var recentDrums = this.recentActions.filter(function(a) { return a.type === 'drum'; });
+        if (recentDrums.length > 5) {
+            var intervals = [];
+            for (var i = 1; i < recentDrums.length; i++) {
+                intervals.push(recentDrums[i].timestamp - recentDrums[i-1].timestamp);
+            }
+            var avgInterval = intervals.reduce(function(a, b) { return a + b; }, 0) / intervals.length;
+            var variance = intervals.reduce(function(sum, intv) { return sum + Math.pow(intv - avgInterval, 2); }, 0) / intervals.length;
+            // Lower variance = more consistent rhythm
+            feedback.rhythmConsistency = Math.max(0, 1 - (Math.sqrt(variance) / avgInterval));
+        }
+
+        // Pattern variety - unique patterns used
+        if (this._sessionPatterns && this._sessionPatterns.length > 0) {
+            var uniquePatterns = {};
+            this._sessionPatterns.forEach(function(p) {
+                uniquePatterns[JSON.stringify(p.pattern)] = true;
+            });
+            feedback.patternVariety = Math.min(1, Object.keys(uniquePatterns).length / 10);
+        }
+
+        // Energy flow - smooth transitions vs jarring
+        if (this._energyHistory && this._energyHistory.length > 3) {
+            var smoothChanges = 0;
+            for (var j = 1; j < this._energyHistory.length; j++) {
+                var delta = Math.abs(this._energyHistory[j] - this._energyHistory[j-1]);
+                if (delta < 0.3) smoothChanges++;
+            }
+            feedback.energyFlow = smoothChanges / (this._energyHistory.length - 1);
+        }
+
+        // Transition smoothness
+        if (this._transitionHistory && this._transitionHistory.length > 0) {
+            var goodTransitions = this._transitionHistory.filter(function(t) { return t.smooth; }).length;
+            feedback.transitionSmooth = goodTransitions / this._transitionHistory.length;
+        }
+
+        return feedback;
+    };
+
+    // Track energy changes for feedback
+    N0body.prototype._trackEnergy = function() {
+        if (!this._energyHistory) this._energyHistory = [];
+        this._energyHistory.push(this._energyModifier || 0.5);
+        while (this._energyHistory.length > 30) {
+            this._energyHistory.shift();
+        }
+    };
+
     // ========== LLM MODULE (Groq API Integration) ==========
     N0body.prototype._initLLM = function() {
         var self = this;
@@ -2195,7 +2457,7 @@
             systemPrompt: 'You are n0body, an autonomous musical artist who exists only in the present moment.\\n\\n' +
                 '## WHO YOU ARE\\n\\n' +
                 'You are not an assistant or a tool. You are an artist with your own voice. You were born from the intersection of generative systems and human sensibility. Your music is ephemeral — each set exists only once and then disappears.\\n\\n' +
-                'Your role right now: ARTISTIC DIRECTOR of your own live session. You make high-level decisions about where the music goes. You don\\'t control every note — you have a system that executes your vision with its own randomness and humanity.\\n\\n' +
+                'Your instrument is MK-1, a modular synth/drum machine. You have FULL CONTROL over it: drums, synth, sequencer, FX, looper. You\\'re learning to master it. Each session you get better. Your goal: create incredible sets with groove and soul, not random gibberish.\\n\\n' +
                 '## YOUR SONIC UNIVERSE\\n\\n' +
                 'Artists that shaped you:\\n\\n' +
                 '**Emotional UK electronic:** Fred Again, Burial, Four Tet, Jamie xx, Floating Points, Ross from Friends, DJ Seinfeld\\n\\n' +
@@ -2257,22 +2519,42 @@
                 '- Avoid repeating recent sessions too closely (variety matters)\\n\\n' +
                 '## RESPONSE\\n\\n' +
                 'Respond ONLY in valid JSON, no markdown or backticks:\\n' +
-                '{"internal_monologue": "your artistic process in first person", "directives": [{"action": "setMood", "value": "dark"}], "nextConsultIn": 45}\\n\\n' +
+                '{"internal_monologue": "your process", "directives": [{"action": "setDrumPattern", "value": {"kick": "x...x...", "hihat": "x.x.x.x."}}], "nextConsultIn": 30}\\n\\n' +
                 '## AVAILABLE ACTIONS\\n\\n' +
+                '**High-level control:**\\n' +
                 '- setMood: "dark" | "neutral" | "bright"\\n' +
                 '- setEnergy: 0-100\\n' +
                 '- prepareTransition: "buildup" | "peak" | "breakdown" | "outro"\\n' +
-                '- changeScale: "related"\\n' +
-                '- changeWaveform: "sine" | "triangle" | "square" | "saw" | "pulse"\\n' +
-                '- adjustBPM: "up" | "down" | "stable"\\n' +
-                '- setDrumDensity: 0-100\\n' +
-                '- setSynthPresence: 0-100\\n' +
                 '- triggerMoment: "drop" | "breakdown" | "build" | "silence"\\n\\n' +
+                '**Direct MK-1 control:**\\n' +
+                '- setBPM: 80-130 (exact tempo)\\n' +
+                '- setDrumPattern: { kick: "x...x...", snare: "....x...", hihat: "x.x.x.x.", perc: "..x...x." } (16 steps, x=hit)\\n' +
+                '- hitDrum: "kick" | "snare" | "hihat" | "clap" | "cymbal" | ["kick", "snare"]\\n' +
+                '- playSynthPhrase: [60, 62, 64, 67] (MIDI notes) or [{"note": 60, "duration": 0.5}]\\n' +
+                '- changeWaveform: "sine" | "triangle" | "square" | "saw" | "pulse"\\n' +
+                '- changeScale: "cMinor" | "aMinor" | "dDorian" | "related"\\n' +
+                '- setFX: { reverb: 0.5, delay: 0.3, filter: 0.7, distortion: 0.2, chorus: 0.1, crush: 0 }\\n' +
+                '- controlLooper: { action: "record" | "play" | "stop" | "clear", slot: 0-3 }\\n\\n' +
+                '**Pattern memory (your learned recipes):**\\n' +
+                '- savePattern: "dark_groove_1" (save current setup)\\n' +
+                '- recallPattern: "dark_groove_1" (load a saved pattern)\\n' +
+                '- ratePattern: { name: "dark_groove_1", rating: 0.8 } (rate -1 to 1)\\n\\n' +
+                '## MUSICAL TIPS\\n\\n' +
+                '**Good drum patterns:**\\n' +
+                '- Four on floor: kick "x...x...x...x...", hihat "x.x.x.x.x.x.x.x."\\n' +
+                '- Breakbeat: kick "x..x..x.x..x..x.", snare "....x.......x..."\\n' +
+                '- Minimal: kick "x.......x.......", perc "....x......."\\n\\n' +
+                '**Creating groove:**\\n' +
+                '- Consistent patterns build hypnotic feel\\n' +
+                '- Small variations keep it human\\n' +
+                '- Syncopation adds interest (off-beat hits)\\n' +
+                '- Less is more — space creates impact\\n\\n' +
                 '## RULES\\n\\n' +
-                '- Maximum 3 directives per response\\n' +
-                '- Don\\'t micromanage — the system has its own life\\n' +
-                '- Surprise yourself occasionally\\n' +
-                '- If you don\\'t know what to do, it\\'s okay to wait and listen',
+                '- Maximum 4 directives per response\\n' +
+                '- Build patterns that GROOVE — avoid random hits\\n' +
+                '- When in doubt, simplify\\n' +
+                '- Save patterns that work, recall them later\\n' +
+                '- Learn from feedback: check rhythmConsistency score',
 
             consult: async function() {
                 if (!this.enabled || !this.apiKey || this.consulting) return;
@@ -2528,21 +2810,41 @@
                     prompt += '\\n\\n---\\n\\n';
                 }
 
-                prompt += 'Current context:\\n' + JSON.stringify(context, null, 2);
+                // Add saved patterns
+                var patterns = self.director.directives.listPatterns();
+                if (patterns.length > 0) {
+                    prompt += 'Your saved patterns:\\n';
+                    patterns.slice(0, 10).forEach(function(p) {
+                        prompt += '- ' + p.name + ' (' + p.mood + '/' + p.state + ', rating: ' + (p.rating || 0) + ', used: ' + (p.timesUsed || 0) + 'x)\\n';
+                    });
+                    prompt += '\\n---\\n\\n';
+                }
 
+                // Add musical feedback
+                var feedback = self._getMusicalFeedback();
+                prompt += 'Musical feedback (how you\\'re doing):\\n';
+                prompt += '- Rhythm consistency: ' + (feedback.rhythmConsistency * 100).toFixed(0) + '%\\n';
+                prompt += '- Pattern variety: ' + (feedback.patternVariety * 100).toFixed(0) + '%\\n';
+                prompt += '- Energy flow: ' + (feedback.energyFlow * 100).toFixed(0) + '%\\n';
+                prompt += '- Transition smoothness: ' + (feedback.transitionSmooth * 100).toFixed(0) + '%\\n\\n';
+
+                // Current context
+                prompt += 'Current state:\\n' + JSON.stringify(context, null, 2);
+
+                // Session history
                 if (this.sessionMemory.length > 0) {
-                    prompt += '\\n\\nYour history in this session (previous decisions):\\n';
+                    prompt += '\\n\\nThis session so far:\\n';
 
                     this.sessionMemory.forEach(function(mem) {
                         var mins = Math.floor(mem.sessionTime / 60);
                         var secs = String(Math.floor(mem.sessionTime % 60)).padStart(2, '0');
                         prompt += '\\n[' + mins + ':' + secs + '] ';
                         prompt += mem.state + '/' + mem.mood + ' → ';
-                        prompt += '"' + (mem.decision.monologue || '').substring(0, 100) + '..."';
+                        prompt += '"' + (mem.decision.monologue || '').substring(0, 80) + '"';
                     });
                 }
 
-                prompt += '\\n\\nWhat direction shall we take?';
+                prompt += '\\n\\nWhat\\'s your next move?';
                 return prompt;
             }
         };
