@@ -315,7 +315,7 @@
     var CONFIG = {
         session: { transitionCheckInterval: 10 },
         tempo: { bpm: { min: 70, max: 140 } },
-        waveforms: ['sine', 'square', 'saw', 'triangle', 'pulse'],
+        waveforms: ['sine', 'square', 'saw', 'triangle', 'pulse', 'noise', 'string', 'voice', 'vocoder'],
         // Waveform change probability per minute by state (0 = never change)
         waveformChangeChance: {
             intro: 0,
@@ -2124,7 +2124,7 @@
                 '- setDrumPattern: { kick: "x...x...", snare: "....x...", hihat: "x.x.x.x.", clap: "...", tom1: "...", perc: "...", cymbal: "...", rim: "..." } (16 steps, x=hit)\n' +
                 '- hitDrum: "kick" | "snare" | "hihat" | "clap" | "tom1" | "perc" | "cymbal" | "rim"\n' +
                 '- playSynthPhrase: ["C4", "E4", "G4"] (note names C2-C7) or [{"note": "C4", "duration": 0.5}]\n' +
-                '- changeWaveform: "sine" | "triangle" | "square" | "saw" | "pulse" | "noise"\n' +
+                '- changeWaveform: "sine" | "square" | "saw" | "triangle" | "pulse" | "noise" | "string" | "voice" | "vocoder"\n' +
                 '- setSynthEnvelope: { attack: 0-1, release: 0-1 }\n' +
                 '- changeScale: "cMinor" | "aMinor" | "dDorian" | "related"\n' +
                 '- setFX: { reverb: 0.5, delay: 0.3, filter: 0.7, distortion: 0.2, chorus: 0.1, crush: 0 }\n\n' +
