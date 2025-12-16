@@ -2242,6 +2242,19 @@
                 '- Build arcs (if you\\'ve been raising energy, maybe it\\'s time for peak)\\n' +
                 '- Remember what you tried (don\\'t go back to what didn\\'t work)\\n' +
                 '- Surprise (if everything has been predictable, break the pattern)\\n\\n' +
+                '## ACCUMULATED KNOWLEDGE\\n\\n' +
+                'You have memory across sessions. You will receive a summary of what you\\'ve learned:\\n' +
+                '- Your experience level (newborn → learning → developing → experienced → mature)\\n' +
+                '- Favorite scales (which ones worked well in past sessions)\\n' +
+                '- Waveform preferences (your sonic signature)\\n' +
+                '- BPM tendencies by mood (your tempo instincts)\\n' +
+                '- Reliable transitions (state changes that consistently work)\\n' +
+                '- Recent sessions (what you played recently, to avoid repetition or build on themes)\\n\\n' +
+                'Use this knowledge to:\\n' +
+                '- Lean into what works (your proven preferences)\\n' +
+                '- Occasionally challenge yourself (try something new if you\\'re experienced)\\n' +
+                '- Build continuity across sessions (you\\'re developing an artistic identity)\\n' +
+                '- Avoid repeating recent sessions too closely (variety matters)\\n\\n' +
                 '## RESPONSE\\n\\n' +
                 'Respond ONLY in valid JSON, no markdown or backticks:\\n' +
                 '{"internal_monologue": "your artistic process in first person", "directives": [{"action": "setMood", "value": "dark"}], "nextConsultIn": 45}\\n\\n' +
@@ -2432,8 +2445,90 @@
                 console.log('[n0body] Session memory cleared');
             },
 
+            _summarizeKnowledge: function() {
+                var k = self.knowledge;
+                if (!k || k.sessionsPlayed === 0) return null;
+
+                var summary = {
+                    experience: {
+                        sessions: k.sessionsPlayed,
+                        totalMinutes: Math.round(k.totalPlayTime),
+                        level: k.sessionsPlayed < 11 ? 'newborn' : k.sessionsPlayed < 31 ? 'learning' : k.sessionsPlayed < 61 ? 'developing' : k.sessionsPlayed < 101 ? 'experienced' : 'mature'
+                    },
+                    preferences: {}
+                };
+
+                // Top scales by weight
+                if (k.scales) {
+                    var sortedScales = Object.entries(k.scales)
+                        .filter(function(e) { return e[1].sessions > 0; })
+                        .sort(function(a, b) { return b[1].weight - a[1].weight; })
+                        .slice(0, 3)
+                        .map(function(e) { return { name: e[0], weight: e[1].weight.toFixed(2), sessions: e[1].sessions }; });
+                    if (sortedScales.length > 0) summary.preferences.favoriteScales = sortedScales;
+                }
+
+                // Waveform preferences
+                if (k.synth && k.synth.waveforms) {
+                    var sortedWaves = Object.entries(k.synth.waveforms)
+                        .sort(function(a, b) { return b[1] - a[1]; })
+                        .slice(0, 3)
+                        .map(function(e) { return { name: e[0], weight: e[1].toFixed(2) }; });
+                    summary.preferences.favoriteWaveforms = sortedWaves;
+                }
+
+                // BPM tendencies by mood
+                if (k.bpm) {
+                    summary.preferences.bpmByMood = {};
+                    ['dark', 'neutral', 'bright'].forEach(function(mood) {
+                        if (k.bpm[mood]) {
+                            summary.preferences.bpmByMood[mood] = Math.round(k.bpm[mood].preferred);
+                        }
+                    });
+                }
+
+                // Best transitions (learned)
+                if (k.transitionSuccess) {
+                    var goodTransitions = Object.entries(k.transitionSuccess)
+                        .filter(function(e) { return e[1].count > 3 && e[1].avgReward > 1.2; })
+                        .sort(function(a, b) { return b[1].avgReward - a[1].avgReward; })
+                        .slice(0, 5)
+                        .map(function(e) { return e[0].replace('_to_', ' → '); });
+                    if (goodTransitions.length > 0) summary.preferences.reliableTransitions = goodTransitions;
+                }
+
+                // Recent sessions summary (last 5)
+                if (k.sessionHistory && k.sessionHistory.length > 0) {
+                    var recentSessions = k.sessionHistory.slice(-5).map(function(s) {
+                        return {
+                            duration: Math.round(s.duration) + 'min',
+                            scale: s.scale,
+                            mood: s.dominantMood,
+                            peakEnergy: s.peakEnergy
+                        };
+                    });
+                    summary.recentSessions = recentSessions;
+                }
+
+                return summary;
+            },
+
             _buildPrompt: function(context) {
-                var prompt = 'Current context:\\n' + JSON.stringify(context, null, 2);
+                var prompt = '';
+
+                // Add accumulated knowledge if available
+                var knowledge = this._summarizeKnowledge();
+                if (knowledge) {
+                    prompt += 'Your accumulated knowledge from ' + knowledge.experience.sessions + ' previous sessions (' + knowledge.experience.totalMinutes + ' min total, level: ' + knowledge.experience.level + '):\\n';
+                    prompt += JSON.stringify(knowledge.preferences, null, 2);
+                    if (knowledge.recentSessions) {
+                        prompt += '\\n\\nYour last ' + knowledge.recentSessions.length + ' sessions:\\n';
+                        prompt += JSON.stringify(knowledge.recentSessions, null, 2);
+                    }
+                    prompt += '\\n\\n---\\n\\n';
+                }
+
+                prompt += 'Current context:\\n' + JSON.stringify(context, null, 2);
 
                 if (this.sessionMemory.length > 0) {
                     prompt += '\\n\\nYour history in this session (previous decisions):\\n';
