@@ -348,11 +348,11 @@
         outro: { minDuration: 30, maxDuration: 60, transitions: {} },
     };
 
-    // REST probability - let the base breathe
+    // REST probability - let the base breathe (higher = more rest, less CPU load)
     var REST_PROBABILITY = {
         intro: 0.85,
-        buildup: 0.7,
-        peak: 0.5,
+        buildup: 0.72,
+        peak: 0.60,      // was 0.5, reduced for performance
         breakdown: 0.75,
         outro: 0.9,
     };
@@ -381,7 +381,7 @@
                 probability: 0.015,
                 padWeights: { 1: 0.20, 2: 0.15, 3: 0.18, 4: 0.08, 5: 0.06, 6: 0.08, 7: 0.05, 8: 0.06 }
             },
-            synth: { probability: 0.35, noteDuration: { min: 0.3, max: 1.5 }, noteSpacing: { min: 500, max: 1500 } },
+            synth: { probability: 0.35, noteDuration: { min: 0.3, max: 1.5 }, noteSpacing: { min: 600, max: 1500 } },
             sequencer: { active: true, density: 0.35, tracksActive: [1, 2, 3, 4, 5, 6, 8] },
             fx: { reverb: { min: 0.5, max: 0.75 }, delay: { min: 0.25, max: 0.5 }, filter: { min: 0.6, max: 0.85 }, distortion: { min: 0.05, max: 0.2 }, chorus: { min: 0.15, max: 0.35 }, crush: { min: 0, max: 0.1 } },
         },
@@ -1132,7 +1132,7 @@
     // ========== LOOPS ==========
     N0body.prototype._startLoops = function() {
         var self = this;
-        this.mainLoop = setInterval(function() { self._tick(); }, 100);
+        this.mainLoop = setInterval(function() { self._tick(); }, 150);
         this._scheduleSynth();
         this._scheduleFxChange();
         this.transitionCheckTimer = setInterval(function() { self._checkStateTransition(); }, this.config.session.transitionCheckInterval * 1000);
@@ -1163,10 +1163,18 @@
             return;
         }
 
-        this._maybePlayDrum();
-        this._maybeChangeBPM();
-        this._maybeChangeWaveform();
-        if (Math.random() < 0.015) this._maybeModifySequencer();
+        // OPTIMIZATION: Only 1 action per tick to prevent audio overload
+        // Weighted random selection: drums most likely, then sequencer, then occasional BPM/waveform
+        var roll = Math.random();
+        if (roll < 0.70) {
+            this._maybePlayDrum();
+        } else if (roll < 0.85) {
+            this._maybeModifySequencer();
+        } else if (roll < 0.95) {
+            this._maybeChangeBPM();
+        } else {
+            this._maybeChangeWaveform();
+        }
     };
 
     N0body.prototype._onStateChange = function(newState) {
@@ -1350,12 +1358,17 @@
     };
 
     N0body.prototype._maybePlayDrum = function() {
+        // Throttle: minimum 100ms between drum hits
+        var now = Date.now();
+        if (this._lastDrumTime && now - this._lastDrumTime < 100) return;
+
         var stateConf = this.stateConfig[this.currentState];
         // Apply director density modifier
         var probability = stateConf.drums.probability * (this._drumDensityModifier || 1.0);
         if (Math.random() < probability) {
             var pad = this._chooseDrumPad();
             MK1.drums.hit(pad);
+            this._lastDrumTime = now;
             this.stats.drumsPlayed++;
             this._learn({ type: 'drum', pad: pad });
             this._trackEnergy('drum');
@@ -1380,7 +1393,8 @@
         }
         var spacing = randomBetween(stateConf.synth.noteSpacing.min, stateConf.synth.noteSpacing.max);
         var humanized = spacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
-        this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(50, humanized));
+        // Minimum 300ms between synth notes to prevent audio overload
+        this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(300, humanized));
     };
 
     N0body.prototype._maybeModifySequencer = function() {
