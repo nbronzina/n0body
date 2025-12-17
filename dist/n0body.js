@@ -1410,6 +1410,7 @@
         MK1.sequencer.setStep(track, step, shouldActivate);
         this._lastSeqTime = now;
         this.stats.sequencerChanges++;
+        this._learn({ type: 'sequencer' });
     };
 
     // ========== FX (all 6) ==========
