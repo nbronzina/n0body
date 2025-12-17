@@ -677,11 +677,11 @@
 
     // REST probability - let the base breathe (higher = more rest, less CPU load)
     var REST_PROBABILITY = {
-        intro: 0.85,
-        buildup: 0.72,
-        peak: 0.60,      // was 0.5, reduced for performance
-        breakdown: 0.75,
-        outro: 0.9,
+        intro: 0.88,
+        buildup: 0.75,
+        peak: 0.65,      // was 0.5, optimized for performance
+        breakdown: 0.78,
+        outro: 0.92,
     };
 
     var STATE_CONFIG = {
@@ -1461,7 +1461,7 @@
     // ========== LOOPS ==========
     N0body.prototype._startLoops = function() {
         var self = this;
-        this.mainLoop = setInterval(function() { self._tick(); }, 150);
+        this.mainLoop = setInterval(function() { self._tick(); }, 200);
         this._scheduleSynth();
         this._scheduleFxChange();
         this.transitionCheckTimer = setInterval(function() { self._checkStateTransition(); }, this.config.session.transitionCheckInterval * 1000);
@@ -1727,15 +1727,18 @@
     };
 
     N0body.prototype._maybeModifySequencer = function() {
+        // Throttle: minimum 500ms between sequencer changes
+        var now = Date.now();
+        if (this._lastSeqTime && now - this._lastSeqTime < 500) return;
+
         var stateConf = this.stateConfig[this.currentState];
         if (!stateConf.sequencer.active || !stateConf.sequencer.tracksActive) return;
         var track = randomFrom(stateConf.sequencer.tracksActive);
         var step = randomIntBetween(1, 16);
         var shouldActivate = Math.random() < stateConf.sequencer.density;
         MK1.sequencer.setStep(track, step, shouldActivate);
+        this._lastSeqTime = now;
         this.stats.sequencerChanges++;
-        this._learn({ type: 'sequencer' });
-        this._trackEnergy('sequencer');
     };
 
     // ========== FX (all 6) ==========
@@ -2210,30 +2213,31 @@
         this._silenceUntil = 0;
     };
 
-    // Track action for context
+    // Track action for context (simplified for performance)
     N0body.prototype._trackAction = function(action) {
+        // Throttle tracking: max 1 per 200ms
+        var now = Date.now();
+        if (this._lastTrackTime && now - this._lastTrackTime < 200) return;
+        this._lastTrackTime = now;
+
         this.recentActions.push({
             type: action.type,
-            detail: action,
-            timestamp: Date.now(),
+            timestamp: now,
             state: this.currentState
         });
-        // Keep last 50 actions
-        while (this.recentActions.length > 50) {
+        // Keep last 25 actions (was 50)
+        if (this.recentActions.length > 25) {
             this.recentActions.shift();
         }
     };
 
-    // Track patterns for learning
+    // Track patterns for learning (simplified for performance)
     N0body.prototype._trackPattern = function(type, pattern) {
         if (!this._sessionPatterns) this._sessionPatterns = [];
         this._sessionPatterns.push({
             type: type,
-            pattern: pattern,
             timestamp: Date.now(),
-            state: this.currentState,
-            mood: this.currentMood,
-            energy: this._energyModifier
+            state: this.currentState
         });
         // Keep last 20 patterns this session
         while (this._sessionPatterns.length > 20) {
