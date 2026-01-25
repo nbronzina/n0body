@@ -877,6 +877,7 @@
         if (this.fxTimer) { clearTimeout(this.fxTimer); this.fxTimer = null; }
         if (this.transitionCheckTimer) { clearInterval(this.transitionCheckTimer); this.transitionCheckTimer = null; }
         if (this.outroTimer) { clearTimeout(this.outroTimer); this.outroTimer = null; }
+        if (this.healthCheckTimer) { clearInterval(this.healthCheckTimer); this.healthCheckTimer = null; }
 
         // Reset MK1
         MK1.sequencer.stop();
@@ -1465,6 +1466,47 @@
         this._scheduleSynth();
         this._scheduleFxChange();
         this.transitionCheckTimer = setInterval(function() { self._checkStateTransition(); }, this.config.session.transitionCheckInterval * 1000);
+
+        // Audio health monitoring - check every 60 seconds
+        this.healthCheckTimer = setInterval(function() { self._checkAudioHealth(); }, 60000);
+    };
+
+    // ========== AUDIO HEALTH MONITORING ==========
+    N0body.prototype._checkAudioHealth = function() {
+        if (!this.isPlaying) return;
+        if (typeof MK1 === 'undefined' || !MK1.utils || !MK1.utils.getHealth) return;
+
+        var health = MK1.utils.getHealth();
+        var elapsed = Math.round((Date.now() - this.sessionStart) / 1000 / 60);
+
+        console.log('n0body: health check @' + elapsed + 'min - voices: ' + health.activeDrumVoices + 'd/' + health.activeSynthVoices + 's, ctx: ' + health.contextState);
+
+        if (!health.healthy) {
+            console.warn('n0body: audio unhealthy! attempting recovery...');
+            this._attemptAudioRecovery();
+        }
+    };
+
+    N0body.prototype._attemptAudioRecovery = function() {
+        if (typeof MK1 === 'undefined' || !MK1.utils) return;
+
+        // First try to resume the context
+        if (MK1.utils.resume) {
+            MK1.utils.resume();
+            console.log('n0body: called MK1.utils.resume()');
+        }
+
+        // Check again after a short delay
+        var self = this;
+        setTimeout(function() {
+            if (!MK1.utils.getHealth) return;
+            var health = MK1.utils.getHealth();
+
+            if (!health.healthy && MK1.utils.forceCleanup) {
+                console.warn('n0body: still unhealthy, forcing cleanup...');
+                MK1.utils.forceCleanup();
+            }
+        }, 1000);
     };
 
     N0body.prototype._tick = function() {
