@@ -2355,7 +2355,7 @@
             apiKey: null,
             model: 'llama-3.3-70b-versatile',
             endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-            consultInterval: 45000,
+            consultInterval: 90000,  // 90 seconds to avoid Groq rate limiting
             lastConsult: 0,
             enabled: false,
             consulting: false,
@@ -2548,7 +2548,7 @@
 
                     // Update consult interval
                     this.consultInterval = (content.nextConsultIn || 45) * 1000;
-                    this.consultInterval = Math.max(15000, Math.min(120000, this.consultInterval));
+                    this.consultInterval = Math.max(45000, Math.min(180000, this.consultInterval));  // min 45s, max 3min
 
                     // Log internal monologue
                     console.log('[n0body]', content.internal_monologue || '...');
