@@ -2355,7 +2355,7 @@
             apiKey: null,
             model: 'llama-3.3-70b-versatile',
             endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-            consultInterval: 90000,  // 90 seconds to avoid Groq rate limiting
+            consultInterval: 180000,  // 3 minutes - LLM gives multi-minute plans
             lastConsult: 0,
             enabled: false,
             consulting: false,
@@ -2428,9 +2428,12 @@
                 '- Occasionally challenge yourself (try something new if you\\'re experienced)\\n' +
                 '- Build continuity across sessions (you\\'re developing an artistic identity)\\n' +
                 '- Avoid repeating recent sessions too closely (variety matters)\\n\\n' +
-                '## RESPONSE\\n\\n' +
+                '## RESPONSE FORMAT\\n\\n' +
+                'You create a PLAN for the next 3-5 minutes. Each directive has an "at" field (seconds from now).\\n' +
                 'Respond ONLY in valid JSON, no markdown or backticks:\\n' +
-                '{"internal_monologue": "your process", "directives": [{"action": "setDrumPattern", "value": {"kick": "x...x...", "hihat": "x.x.x.x."}}], "nextConsultIn": 30}\\n\\n' +
+                '{"internal_monologue": "your artistic vision for this segment", "plan": [{"at": 0, "action": "setDrumPattern", "value": {"kick": "x...x...", "hihat": "x.x.x.x."}}, {"at": 60, "action": "setEnergy", "value": 70}, {"at": 120, "action": "prepareTransition", "value": "buildup"}], "planDuration": 180}\\n\\n' +
+                'The "at" field is seconds from now (0 = immediate, 60 = in 1 minute, etc).\\n' +
+                'planDuration tells n0body how long this plan covers (in seconds).\\n\\n' +
                 '## AVAILABLE ACTIONS\\n\\n' +
                 '**High-level control:**\\n' +
                 '- setMood: "dark" | "neutral" | "bright"\\n' +
@@ -2461,11 +2464,12 @@
                 '- Syncopation adds interest (off-beat hits)\\n' +
                 '- Less is more — space creates impact\\n\\n' +
                 '## RULES\\n\\n' +
-                '- Maximum 4 directives per response\\n' +
+                '- Create plans for 3-5 minutes (180-300 seconds)\\n' +
+                '- Include 4-8 timed directives per plan\\n' +
+                '- Space directives naturally (not all at once)\\n' +
                 '- Build patterns that GROOVE — avoid random hits\\n' +
-                '- When in doubt, simplify\\n' +
-                '- Save patterns that work, recall them later\\n' +
-                '- Learn from feedback: check rhythmConsistency score',
+                '- Think in arcs: intro → build → peak → release\\n' +
+                '- Save patterns that work, recall them later',
 
             consult: async function() {
                 if (!this.enabled || !this.apiKey || this.consulting) return;
@@ -2483,7 +2487,7 @@
                         },
                         body: JSON.stringify({
                             model: this.model,
-                            max_tokens: 256,
+                            max_tokens: 512,  // More tokens for multi-minute plans
                             temperature: 0.9,
                             messages: [
                                 {
@@ -2537,18 +2541,40 @@
                         this.sessionMemory.shift();
                     }
 
-                    // Validate and queue directives
-                    if (content.directives && Array.isArray(content.directives)) {
-                        content.directives.slice(0, 3).forEach(function(d) {
+                    // Process plan with timed directives
+                    if (content.plan && Array.isArray(content.plan)) {
+                        var planStartTime = Date.now();
+                        content.plan.forEach(function(d) {
+                            if (d.action && self.director.directives[d.action]) {
+                                var delay = (d.at || 0) * 1000;
+                                if (delay === 0) {
+                                    // Execute immediately
+                                    self.director.queue(d.action, d.value);
+                                } else {
+                                    // Schedule for later
+                                    setTimeout(function() {
+                                        if (self.isPlaying) {
+                                            self.director.queue(d.action, d.value);
+                                            console.log('[n0body] executing planned: ' + d.action);
+                                        }
+                                    }, delay);
+                                }
+                            }
+                        });
+                        console.log('[n0body] plan loaded: ' + content.plan.length + ' directives over ' + (content.planDuration || 180) + 's');
+                    }
+                    // Fallback: support old format with directives array
+                    else if (content.directives && Array.isArray(content.directives)) {
+                        content.directives.slice(0, 4).forEach(function(d) {
                             if (d.action && self.director.directives[d.action]) {
                                 self.director.queue(d.action, d.value);
                             }
                         });
                     }
 
-                    // Update consult interval
-                    this.consultInterval = (content.nextConsultIn || 45) * 1000;
-                    this.consultInterval = Math.max(45000, Math.min(180000, this.consultInterval));  // min 45s, max 3min
+                    // Update consult interval based on plan duration
+                    var planDuration = content.planDuration || 180;
+                    this.consultInterval = Math.max(120000, planDuration * 1000);  // min 2 min, or plan duration
 
                     // Log internal monologue
                     console.log('[n0body]', content.internal_monologue || '...');
