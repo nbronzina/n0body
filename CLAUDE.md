@@ -221,7 +221,7 @@ Never conflate them.
 - Do not poll mk-1 state
 - Do not add visual complexity
 
-## Constitution Files (pending)
+## Constitution Files
 
 - IDENTITY.md — who n0body is, what it plays toward
 - mk1-instrument-model.md — perceptual + parameter model of mk-1
