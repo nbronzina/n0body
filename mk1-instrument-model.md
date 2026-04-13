@@ -31,6 +31,26 @@ Cleared at session end — never archived
 Master clock: 120 BPM default
 All scheduling derives from AudioContext.currentTime
 
+## Modulation (now active)
+
+**Standard waves (sine, square, saw, triangle, pulse, noise, string, voice)**
+- driftLFO → driftGain → subOsc.detune
+- Rate: 0.1–0.3 Hz / Depth: ±15 cents
+- Effect: sub oscillator drifts slowly against unison stack — tape wobble
+- Not heard as vibrato — felt as texture
+
+**Formant voice**
+- lfo → lfoGain → source.detune + source2.detune
+- Rate: 1–2 Hz / Depth: ±20 cents
+- Effect: both sawtooth carriers drift together, slow organic pitch movement
+- Maintains 5-cent spread between carriers
+
+**What this means for n0body:**
+Sustained notes on any wave type now have inherent organic movement.
+The piano is no longer static — it breathes.
+n0body does not need to automate detune to create texture.
+The instrument already carries imperfection by default.
+
 ## Parameter expressivity — ranked
 
 1. Pattern data — restructures rhythm completely. Highest range.
