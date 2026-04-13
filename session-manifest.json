@@ -1,0 +1,26 @@
+{
+  "session_id": "",
+  "timestamp": "",
+  "session_interrupted": false,
+
+  "current_musical_state": {
+    "bpm": null,
+    "key": null,
+    "energy_level": null,
+    "active_motifs": [],
+    "arc_position": null
+  },
+
+  "decisions_log": [],
+
+  "tried_and_rejected": [],
+
+  "next_session_intent": "",
+  "next_session_constraints": [],
+
+  "audio_context_state": {
+    "nodes_at_close": null,
+    "peak_render_capacity": null,
+    "session_duration_min": null
+  }
+}
