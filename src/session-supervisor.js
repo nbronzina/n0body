@@ -253,6 +253,7 @@ class SessionSupervisor {
         // Run all termination trigger checks
         if (this.state === STATES.NOMINAL || this.state === STATES.DENSITY_REDUCED) {
             this._checkTimeLimit();
+            this._checkContextThreshold();
             this._checkOutroSignal();
             this._checkRepetition();
             this._checkEntropy();

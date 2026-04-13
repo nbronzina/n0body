@@ -1201,11 +1201,23 @@
             return;
         }
 
-        // REST - let the base breathe
+        // REST - let the base breathe (supervisor can increase rest when density-reduced)
         var restChance = this.restProbability[this.currentState] || 0.6;
+        if (this._supervisorDensityReduced) {
+            restChance = Math.min(0.95, restChance + 0.15);
+        }
         if (Math.random() < restChance) {
             this._trackEnergy('rest');
             return;
+        }
+
+        // Supervisor voice limit — skip sound-producing actions when at capacity
+        if (this._supervisorMaxVoices !== undefined) {
+            var voiceCount = this._estimateActiveVoices();
+            if (voiceCount >= this._supervisorMaxVoices) {
+                this._maybeModifySequencer();
+                return;
+            }
         }
 
         // OPTIMIZATION: Only 1 action per tick to prevent audio overload
@@ -1220,6 +1232,14 @@
         } else {
             this._maybeChangeWaveform();
         }
+    };
+
+    N0body.prototype._estimateActiveVoices = function() {
+        if (typeof MK1 !== 'undefined' && MK1.utils && MK1.utils.getHealth) {
+            var health = MK1.utils.getHealth();
+            if (health) return (health.activeDrumVoices || 0) + (health.activeSynthVoices || 0);
+        }
+        return 0;
     };
 
     N0body.prototype._onStateChange = function(newState) {
@@ -1415,8 +1435,8 @@
         if (this._lastDrumTime && now - this._lastDrumTime < 100) return;
 
         var stateConf = this.stateConfig[this.currentState];
-        // Apply director density modifier
-        var probability = stateConf.drums.probability * (this._drumDensityModifier || 1.0);
+        // Apply director density modifier and supervisor polyphony scale
+        var probability = stateConf.drums.probability * (this._drumDensityModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
         if (Math.random() < probability) {
             var pad = this._chooseDrumPad();
             MK1.drums.hit(pad);
@@ -1432,8 +1452,8 @@
         if (!this.isPlaying) return;
         var self = this;
         var stateConf = this.stateConfig[this.currentState];
-        // Apply director presence modifier
-        var probability = stateConf.synth.probability * (this._synthPresenceModifier || 1.0);
+        // Apply director presence modifier and supervisor polyphony scale
+        var probability = stateConf.synth.probability * (this._synthPresenceModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
         if (Math.random() < probability) {
             var note = this._chooseSynthNote();
             var duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
@@ -2194,6 +2214,14 @@
                             }
                         });
                         console.log('[n0body] plan loaded: ' + content.plan.length + ' directives over ' + (content.planDuration || 180) + 's');
+
+                        // Notify supervisor if Grok planned an outro transition
+                        var hasOutro = content.plan.some(function(d) {
+                            return (d.action === 'prepareTransition' || d.action === 'forceTransition') && d.value === 'outro';
+                        });
+                        if (hasOutro) {
+                            window.dispatchEvent(new CustomEvent('n0body-request-outro'));
+                        }
                     }
                     // Fallback: support old format with directives array
                     else if (content.directives && Array.isArray(content.directives)) {
@@ -2202,6 +2230,14 @@
                                 self.director.queue(d.action, d.value);
                             }
                         });
+
+                        // Notify supervisor if Grok directed an outro transition
+                        var hasOutro = content.directives.some(function(d) {
+                            return (d.action === 'prepareTransition' || d.action === 'forceTransition') && d.value === 'outro';
+                        });
+                        if (hasOutro) {
+                            window.dispatchEvent(new CustomEvent('n0body-request-outro'));
+                        }
                     }
 
                     // Update consult interval based on plan duration
@@ -2367,6 +2403,28 @@
             _buildPrompt: function(context) {
                 var prompt = '';
 
+                // Add supervisor boot hints if this is a warm start
+                var hints = self._supervisorBootHints;
+                if (hints) {
+                    prompt += 'Session continuity from supervisor:\n';
+                    if (hints.interrupted) {
+                        prompt += '- Previous session was INTERRUPTED (not graceful end)\n';
+                    }
+                    if (hints.nextIntent) {
+                        prompt += '- Intent for this session: ' + hints.nextIntent + '\n';
+                    }
+                    if (hints.previousBPM) {
+                        prompt += '- Previous BPM: ' + hints.previousBPM + '\n';
+                    }
+                    if (hints.previousKey) {
+                        prompt += '- Previous key: ' + hints.previousKey + '\n';
+                    }
+                    if (hints.previousEnergy !== null && hints.previousEnergy !== undefined) {
+                        prompt += '- Previous energy level: ' + hints.previousEnergy + '\n';
+                    }
+                    prompt += '\n---\n\n';
+                }
+
                 // Add accumulated knowledge if available
                 var knowledge = this._summarizeKnowledge();
                 if (knowledge) {
@@ -2423,6 +2481,26 @@
 
         // Expose LLM module for easy access
         window.n0bodyLLM = window.n0body.llm;
+
+        // Listen for supervisor state changes to adjust behavior
+        window.addEventListener('n0body-supervisor-state', function(e) {
+            var detail = e.detail;
+            if (!detail || !window.n0body) return;
+
+            if (detail.to === 'DENSITY_REDUCED') {
+                // Scale back probabilities to reduce audio load
+                window.n0body._supervisorDensityReduced = true;
+                console.log('[n0body] supervisor: density reduced mode');
+            } else if (detail.from === 'DENSITY_REDUCED' && detail.to === 'NOMINAL') {
+                // Restore normal probabilities
+                delete window.n0body._supervisorDensityReduced;
+                console.log('[n0body] supervisor: nominal mode restored');
+            } else if (detail.to === 'OUTRO') {
+                // Supervisor is ending the session — reduce activity
+                window.n0body._supervisorDensityReduced = true;
+                console.log('[n0body] supervisor: outro mode — reducing activity');
+            }
+        });
 
         console.log('n0body v3.2: loaded (' + window.n0body.knowledge.sessionsPlayed + ' sessions, ' + Math.round(window.n0body.knowledge.totalPlayTime) + ' min)');
         console.log('[n0body] Director module ready');
