@@ -549,6 +549,9 @@
         if (this.transitionCheckTimer) { clearInterval(this.transitionCheckTimer); this.transitionCheckTimer = null; }
         if (this.outroTimer) { clearTimeout(this.outroTimer); this.outroTimer = null; }
         if (this.healthCheckTimer) { clearInterval(this.healthCheckTimer); this.healthCheckTimer = null; }
+        if (this._bpmInterval) { clearInterval(this._bpmInterval); this._bpmInterval = null; }
+        if (this._planTimeouts) { this._planTimeouts.forEach(function(id) { clearTimeout(id); }); this._planTimeouts = []; }
+        if (this._phraseTimeouts) { this._phraseTimeouts.forEach(function(id) { clearTimeout(id); }); this._phraseTimeouts = []; }
 
         // Reset MK1
         MK1.sequencer.stop();
@@ -1310,13 +1313,20 @@
         var current = from;
         var step = 0;
 
-        var interval = setInterval(function() {
+        // Clear any in-progress BPM transition before starting a new one
+        if (this._bpmInterval) {
+            clearInterval(this._bpmInterval);
+            this._bpmInterval = null;
+        }
+
+        this._bpmInterval = setInterval(function() {
             step++;
             current += stepSize;
             MK1.tempo.setBPM(Math.round(current));
 
             if (step >= steps) {
-                clearInterval(interval);
+                clearInterval(self._bpmInterval);
+                self._bpmInterval = null;
                 self.currentBPM = to;
             }
         }, stepDuration);
@@ -1761,10 +1771,16 @@
                         if (typeof n === 'string') return { note: n, duration: 0.25, delay: i * 0.3 };
                         return { note: n.note, duration: n.duration || 0.25, delay: n.delay !== undefined ? n.delay : i * 0.3 };
                     });
+                    // Clear any pending phrase timeouts before scheduling new ones
+                    if (self._phraseTimeouts) {
+                        self._phraseTimeouts.forEach(function(id) { clearTimeout(id); });
+                    }
+                    self._phraseTimeouts = [];
                     normalizedPhrase.forEach(function(n) {
-                        setTimeout(function() {
+                        var tid = setTimeout(function() {
                             if (self.isPlaying) MK1.synth.play(n.note, n.duration);
                         }, n.delay * 1000);
+                        self._phraseTimeouts.push(tid);
                     });
                     console.log('[n0body director] synth phrase -> ' + normalizedPhrase.length + ' notes');
                     self._trackPattern('synth', normalizedPhrase);
@@ -2152,6 +2168,12 @@
 
                     // Process plan with timed directives
                     if (content.plan && Array.isArray(content.plan)) {
+                        // Clear timeouts from previous plan before scheduling new one
+                        if (self._planTimeouts) {
+                            self._planTimeouts.forEach(function(id) { clearTimeout(id); });
+                        }
+                        self._planTimeouts = [];
+
                         var planStartTime = Date.now();
                         content.plan.forEach(function(d) {
                             if (d.action && self.director.directives[d.action]) {
@@ -2160,13 +2182,14 @@
                                     // Execute immediately
                                     self.director.queue(d.action, d.value);
                                 } else {
-                                    // Schedule for later
-                                    setTimeout(function() {
+                                    // Schedule for later — track the timeout ID
+                                    var tid = setTimeout(function() {
                                         if (self.isPlaying) {
                                             self.director.queue(d.action, d.value);
                                             console.log('[n0body] executing planned: ' + d.action);
                                         }
                                     }, delay);
+                                    self._planTimeouts.push(tid);
                                 }
                             }
                         });
