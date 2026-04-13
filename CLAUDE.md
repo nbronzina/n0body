@@ -26,18 +26,22 @@ Stage: mk-air.onrender.com
 
 n0body/
 ├── CLAUDE.md
-├── index.html          — UI: start/stop/broadcast/status
+├── index.html              — UI: start/stop/broadcast/status
 ├── package.json
+├── session-manifest.json   — handoff state between sessions (schema)
+├── tried-rejected.json     — patterns that didn't work (schema)
+├── decision-log.jsonl      — append-only decision record (schema)
 ├── dist/
-│   └── n0body.js       — self-contained bundle (paste into mk-1 console)
+│   └── n0body.js           — self-contained bundle (paste into mk-1 console)
 └── src/
-    ├── brain.js        — decision engine (N0body class)
-    ├── config.js       — session configuration + transition matrix
-    ├── learning.js     — cross-session learning + reward evaluation
-    ├── memory.js       — localStorage persistence
-    ├── scales.js       — musical scales grouped by mood
-    ├── states.js       — per-state parameter ranges
-    └── utils.js        — random, clamp, lerp, time formatting
+    ├── brain.js            — decision engine (N0body class)
+    ├── config.js           — session configuration + transition matrix
+    ├── learning.js         — cross-session learning + reward evaluation
+    ├── memory.js           — localStorage persistence
+    ├── scales.js           — musical scales grouped by mood
+    ├── session-supervisor.js — deterministic session lifecycle manager
+    ├── states.js           — per-state parameter ranges
+    └── utils.js            — random, clamp, lerp, time formatting
 
 ## Build
 
@@ -189,6 +193,74 @@ Never conflate them.
 - Transition checks: every 10s, probability increases with time in state
 - Waveform changes: rare (~0.3 per minute), during FX change cycle
 
+## Session Supervisor (session-supervisor.js)
+
+Deterministic JS process that manages session lifecycle. No LLM calls.
+Grok is the creative engine. The supervisor is the process manager.
+
+### FSM
+
+IDLE → INITIALIZING → NOMINAL → DENSITY_REDUCED → OUTRO → HANDOFF → TERMINATED
+Any active state → EMERGENCY_STOP → TERMINATED
+TERMINATED → IDLE (ready for next session)
+
+### Termination Triggers
+
+1. Hard time limit: 45 minutes (configurable)
+2. Context threshold: Grok consecutive errors ≥ 2
+3. Grok OUTRO request: `n0body-request-outro` CustomEvent
+4. Repetition detection: 4/5 recent Grok decisions >80% Jaccard similarity
+5. Entropy degradation: Shannon entropy <0.3 bits (stuck loop) or monotonically rising (noise)
+6. Render capacity >95% for >10 seconds → EMERGENCY_STOP
+7. Manual stop: user presses [stop]
+
+### Render Capacity Ladder
+
+| Load  | Actions                                          |
+|-------|--------------------------------------------------|
+| >70%  | reduce polyphony to 0.75×, disable chorus        |
+| >80%  | switch to algorithmic reverb                     |
+| >85%  | max 4 voices, bypass per-voice FX                |
+| >90%  | single voice, bypass all FX                      |
+| >95%  | EMERGENCY_STOP after 10s                         |
+
+### Outro Sequence (2 minutes)
+
+1. Signal n0body to enter outro state
+2. Master gain fade over 90 seconds (30 steps × 3s)
+3. Write session-manifest.json at 30 seconds remaining
+4. On silence confirmed → HANDOFF → dual-context crossfade
+
+### Dual-Context Crossfade
+
+1. Create new AudioContext BEFORE closing old
+2. GainNode fadeout on old context over 3 seconds
+3. After 3.5 seconds: close old context, null all old node references
+4. Dispatch `n0body-new-audio-context` event with new context
+5. Read session-manifest.json → warm start with `next_session_intent`
+
+### Boot Sequence (every session start)
+
+1. Read session-manifest.json — load previous musical state and intentions
+2. Check `session_interrupted` flag
+3. Read tried-rejected.json — know what to avoid
+4. Read last 10 lines of decision-log.jsonl — recent context
+5. Set `_supervisorBootHints` on n0body for Grok's opening prompt
+6. Transition to NOMINAL
+
+## Integration Points (session-supervisor.js ↔ brain.js)
+
+Six connections between the supervisor and the brain:
+
+| Property / Event | Direction | Purpose |
+|---|---|---|
+| `_supervisorBootHints` | supervisor → brain | Previous session state injected into Grok's first prompt on warm start |
+| `_supervisorMaxVoices` | supervisor → brain | Voice count ceiling — tick skips drum/synth when at limit |
+| `_supervisorPolyphonyScale` | supervisor → brain | Multiplier (0–1) on drum and synth probabilities |
+| `n0body-request-outro` | brain → supervisor | CustomEvent dispatched when Grok plans an outro transition |
+| `n0body-supervisor-state` | supervisor → brain | CustomEvent on FSM transitions — brain increases rest probability during DENSITY_REDUCED/OUTRO |
+| `_checkContextThreshold()` | supervisor internal | Monitors Grok consecutive errors, triggers outro on degradation |
+
 ## Technical Conventions
 
 - Never assign AudioParam .value directly during playback
@@ -226,6 +298,9 @@ Never conflate them.
 - IDENTITY.md — who n0body is, what it plays toward
 - mk1-instrument-model.md — perceptual + parameter model of mk-1
 - behavioral-patterns.md — playing strategies
+- session-manifest.json — handoff state between sessions (runtime data in localStorage)
+- tried-rejected.json — patterns/progressions/transitions that didn't work (runtime data in localStorage)
+- decision-log.jsonl — append-only record of artistic decisions with rationale (runtime data in localStorage)
 
 ## Collaborators
 
