@@ -328,8 +328,20 @@
     <div id="llmActive" class="llm-config" style="display: none;">
         <span class="llm-status-text">brain active</span>
         <button id="llmClearKey">deactivate</button>
+        <button id="llmResetKey" style="opacity: 0.4; font-size: 0.65rem;">reset key</button>
         <button id="llmReset">reset</button>
     </div>
+
+    <script>
+        // Immediate key check — hide input before anything renders
+        (function() {
+            var storedKey = localStorage.getItem('n0body-llm-key');
+            if (storedKey) {
+                document.getElementById('llmConfig').style.display = 'none';
+                document.getElementById('llmActive').style.display = 'flex';
+            }
+        })();
+    </script>
 
     <div class="iframe-container">
         <div class="overlay" id="loadingOverlay">
@@ -2822,6 +2834,7 @@
         const llmApiKey = document.getElementById('llmApiKey');
         const llmSaveKey = document.getElementById('llmSaveKey');
         const llmClearKey = document.getElementById('llmClearKey');
+        const llmResetKey = document.getElementById('llmResetKey');
         const llmReset = document.getElementById('llmReset');
 
         let n0bodyRef = null;
@@ -2973,6 +2986,15 @@
         };
 
         llmClearKey.onclick = () => {
+            localStorage.removeItem('n0body-llm-key');
+            if (n0bodyLLMRef) {
+                n0bodyLLMRef.deactivate();
+            }
+            llmConfig.style.display = 'flex';
+            llmActive.style.display = 'none';
+        };
+
+        llmResetKey.onclick = () => {
             localStorage.removeItem('n0body-llm-key');
             if (n0bodyLLMRef) {
                 n0bodyLLMRef.deactivate();
