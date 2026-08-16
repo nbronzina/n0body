@@ -425,14 +425,21 @@
         }
     }
 
-    // Migrate old knowledge to new structure
+    // Migrate old knowledge to new structure — only runs on version mismatch
     function migrateKnowledge(old) {
+        // Already current version — return as-is, no data loss
+        if (old.version === '3.2') {
+            return old;
+        }
+
+        // Old format (pre-3.2) — migrate once
         var fresh = initKnowledge();
         // Preserve basic stats
         fresh.sessionsPlayed = old.sessionsPlayed || 0;
         fresh.totalPlayTime = old.totalPlayTime || 0;
         // Preserve compatible structures
-        if (old.transitionSuccess) fresh.transitions = old.transitionSuccess;
+        if (old.transitionSuccess) fresh.transitionSuccess = old.transitionSuccess;
+        if (old.transitions) fresh.transitionSuccess = old.transitions;
         if (old.combos) fresh.combos = old.combos;
         if (old.notes) fresh.notes = old.notes;
         if (old.drums) fresh.drums = old.drums;
@@ -440,8 +447,18 @@
         if (old.fx && old.fx.intro && old.fx.intro.reverb && typeof old.fx.intro.reverb === 'object') {
             fresh.fx = old.fx;
         }
-        // Migrate BPM preferences
-        if (old.bpmPreference) {
+        // Preserve new-format fields if they exist
+        if (old.synth) fresh.synth = old.synth;
+        if (old.stateDurations) fresh.stateDurations = old.stateDurations;
+        if (old.energy) fresh.energy = old.energy;
+        if (old.sessionHistory) fresh.sessionHistory = old.sessionHistory;
+        if (old.savedPatterns) fresh.savedPatterns = old.savedPatterns;
+        if (old.bpmChanges) fresh.bpmChanges = old.bpmChanges;
+        if (old.scaleChanges) fresh.scaleChanges = old.scaleChanges;
+        if (old.scales) fresh.scales = old.scales;
+        if (old.bpm) fresh.bpm = old.bpm;
+        // Migrate old BPM preferences format
+        if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
                 if (fresh.bpm[mood]) {
                     fresh.bpm[mood].preferred = old.bpmPreference[mood].preferred || fresh.bpm[mood].preferred;
@@ -449,8 +466,8 @@
                 }
             }
         }
-        // Migrate scale success
-        if (old.scaleSuccess) {
+        // Migrate old scale success format
+        if (old.scaleSuccess && !old.scales) {
             for (var scale in old.scaleSuccess) {
                 if (fresh.scales[scale]) {
                     fresh.scales[scale].weight = old.scaleSuccess[scale].avgScore || 1.0;
@@ -547,7 +564,7 @@
             synth: synth,
 
             // State transitions (learnable)
-            transitions: {},
+            transitionSuccess: {},
 
             // Energy per state
             energy: energy,
@@ -998,8 +1015,13 @@
         var stateConfig = this.stateTransitions[this.currentState];
         if (!stateConfig || !stateConfig.transitions) return;
 
+        // Use learned duration preferences (falls back to static config)
+        var learnedDuration = this._getStateDuration(this.currentState);
+        var minDur = stateConfig.minDuration;
+        var maxDur = Math.max(stateConfig.minDuration + 1, learnedDuration);
+
         // Check for director-forced next state
-        if (this._forcedNextState && timeInState >= stateConfig.minDuration * 0.5) {
+        if (this._forcedNextState && timeInState >= minDur * 0.5) {
             var forcedState = this._forcedNextState;
             this._forcedNextState = null;
             console.log('n0body: ' + this.currentState + ' -> ' + forcedState + ' (director forced, ' + Math.round(timeInState) + 's)');
@@ -1007,10 +1029,10 @@
             return;
         }
 
-        if (timeInState < stateConfig.minDuration) return;
+        if (timeInState < minDur) return;
 
         var mustTransition = timeInState >= stateConfig.maxDuration;
-        var checkChance = mustTransition ? 1.0 : Math.min(0.4, (timeInState - stateConfig.minDuration) / stateConfig.maxDuration);
+        var checkChance = mustTransition ? 1.0 : Math.min(0.4, (timeInState - minDur) / maxDur);
 
         if (Math.random() > checkChance) return;
 
@@ -1042,6 +1064,14 @@
 
         // Track for director context
         this._trackAction({ type: 'transition', from: oldState, to: newState, timeInState: timeInState });
+
+        // Track transition quality for musical feedback
+        if (!this._transitionHistory) this._transitionHistory = [];
+        this._transitionHistory.push({
+            from: oldState, to: newState, timeInState: timeInState,
+            smooth: reward >= 1.0  // smooth if reward was positive
+        });
+        if (this._transitionHistory.length > 20) this._transitionHistory.shift();
     };
 
     N0body.prototype._adjustTransitionsWithLearning = function(transitions) {
@@ -1445,6 +1475,11 @@
 
         var state = this.currentState;
         this.sessionEnergy[state] = clamp((this.sessionEnergy[state] || 0) + energyDelta, 0, 1);
+
+        // Track energy over time for musical feedback metrics
+        if (!this._energyHistory) this._energyHistory = [];
+        this._energyHistory.push(this.sessionEnergy[state]);
+        if (this._energyHistory.length > 50) this._energyHistory.shift();
     };
 
     N0body.prototype._learnEnergy = function(sessionReward) {
@@ -1563,11 +1598,18 @@
             return;
         }
 
-        // REST - let the base breathe (supervisor can increase rest when density-reduced)
+        // REST - let the base breathe
+        // _energyModifier (0-1): low energy = more rest, high energy = less rest
+        // supervisor density reduction adds +0.15 rest
         var restChance = this.restProbability[this.currentState] || 0.6;
+        if (this._energyModifier !== undefined) {
+            // energy 0 → +0.2 rest, energy 0.5 → no change, energy 1.0 → -0.2 rest
+            restChance += (0.5 - this._energyModifier) * 0.4;
+        }
         if (this._supervisorDensityReduced) {
             restChance = Math.min(0.95, restChance + 0.15);
         }
+        restChance = Math.max(0.1, Math.min(0.95, restChance));
         if (Math.random() < restChance) {
             this._trackEnergy('rest');
             return;
@@ -2306,11 +2348,17 @@
         }
     };
 
-    // Track patterns for learning (simplified for performance)
+    // Track patterns for learning
     N0body.prototype._trackPattern = function(type, pattern) {
         if (!this._sessionPatterns) this._sessionPatterns = [];
+        // Store a lightweight fingerprint of the pattern for variety calculation
+        var fingerprint = type;
+        if (pattern && typeof pattern === 'object') {
+            fingerprint = type + ':' + Object.keys(pattern).sort().join(',');
+        }
         this._sessionPatterns.push({
             type: type,
+            pattern: fingerprint,
             timestamp: Date.now(),
             state: this.currentState
         });
@@ -2702,7 +2750,7 @@
                     experience: {
                         sessions: k.sessionsPlayed,
                         totalMinutes: Math.round(k.totalPlayTime),
-                        level: k.sessionsPlayed < 11 ? 'newborn' : k.sessionsPlayed < 31 ? 'learning' : k.sessionsPlayed < 61 ? 'developing' : k.sessionsPlayed < 101 ? 'experienced' : 'mature'
+                        level: getLevel(k.sessionsPlayed)
                     },
                     preferences: {}
                 };
