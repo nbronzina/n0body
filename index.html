@@ -784,6 +784,53 @@
         },
     };
 
+    // ========== DRUM PATTERN TEMPLATES ==========
+    // Patterns as units — not random steps. 1 = hit, 0 = rest. 16 steps.
+    var DRUM_PATTERNS = {
+        // kick patterns
+        kick_four: [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],
+        kick_minimal: [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+        kick_syncopated: [1,0,0,1,0,0,1,0,0,0,1,0,0,0,0,0],
+        kick_broken: [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],
+        // snare patterns
+        snare_backbeat: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
+        snare_offbeat: [0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0],
+        snare_sparse: [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
+        // hihat patterns
+        hat_eighth: [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],
+        hat_sixteenth: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        hat_offbeat: [0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0],
+        hat_sparse: [0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0],
+        // perc/rim accents
+        perc_accent: [0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0],
+        rim_ghost: [0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],
+        // empty
+        silent: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    };
+
+    // Pattern sets by energy level — complete groove presets
+    var GROOVE_PRESETS = {
+        intro: [
+            { 1: 'kick_minimal', 3: 'silent', 6: 'silent' },
+        ],
+        buildup: [
+            { 1: 'kick_four', 2: 'snare_sparse', 3: 'hat_offbeat' },
+            { 1: 'kick_syncopated', 2: 'snare_backbeat', 3: 'hat_sparse', 8: 'rim_ghost' },
+        ],
+        peak: [
+            { 1: 'kick_four', 2: 'snare_backbeat', 3: 'hat_eighth', 6: 'perc_accent' },
+            { 1: 'kick_broken', 2: 'snare_offbeat', 3: 'hat_sixteenth', 8: 'rim_ghost' },
+            { 1: 'kick_syncopated', 2: 'snare_backbeat', 3: 'hat_eighth', 6: 'perc_accent', 8: 'rim_ghost' },
+        ],
+        breakdown: [
+            { 1: 'kick_minimal', 2: 'silent', 3: 'hat_sparse' },
+            { 1: 'kick_minimal', 6: 'perc_accent' },
+        ],
+        outro: [
+            { 1: 'kick_minimal', 3: 'silent' },
+        ],
+    };
+
     // ========== UTILS ==========
     function randomBetween(min, max) { return Math.random() * (max - min) + min; }
     function randomIntBetween(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -1867,26 +1914,97 @@
             this._trackEnergy('synth');
             this._trackAction({ type: 'synth', note: note, duration: duration });
         }
-        var spacing = randomBetween(stateConf.synth.noteSpacing.min, stateConf.synth.noteSpacing.max);
-        var humanized = spacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
+
+        // Quantize synth timing to beat grid — notes land in relation to the groove
+        // instead of firing on an independent random timer
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var subdivisions = [0.25, 0.5, 0.5, 1, 1, 1, 2, 2, 4]; // weighted toward half and full beats
+        var subdiv = randomFrom(subdivisions);
+        var gridSpacing = beatMs * subdiv;
+
+        // Apply humanization: ±timing ms of drift around the grid point
+        var humanized = gridSpacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
+
+        // In sparse states (intro/outro), allow skipping grid points
+        if (this.currentState === 'intro' || this.currentState === 'outro') {
+            humanized *= randomFrom([1, 2, 2, 3, 4]); // skip 1-4 grid points
+        }
+
         // Minimum 300ms between synth notes to prevent audio overload
         this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(300, humanized));
     };
 
     N0body.prototype._maybeModifySequencer = function() {
-        // Throttle: minimum 500ms between sequencer changes
+        // Throttle: minimum 2s between sequencer changes (patterns are units, not steps)
         var now = Date.now();
-        if (this._lastSeqTime && now - this._lastSeqTime < 500) return;
+        if (this._lastSeqTime && now - this._lastSeqTime < 2000) return;
 
         var stateConf = this.stateConfig[this.currentState];
-        if (!stateConf.sequencer.active || !stateConf.sequencer.tracksActive) return;
-        var track = randomFrom(stateConf.sequencer.tracksActive);
-        var step = randomIntBetween(1, 16);
-        var shouldActivate = Math.random() < stateConf.sequencer.density;
-        MK1.sequencer.setStep(track, step, shouldActivate);
+        if (!stateConf.sequencer.active) return;
+
+        // 15% chance: intentional mute/unmute as expressive gesture
+        if (Math.random() < 0.15) {
+            this._intentionalMute();
+            this._lastSeqTime = now;
+            return;
+        }
+
+        // 85% chance: apply a groove preset as a complete pattern
+        this._applyGroovePreset();
         this._lastSeqTime = now;
         this.stats.sequencerChanges++;
         this._learn({ type: 'sequencer' });
+    };
+
+    // Apply a complete groove preset — patterns as units, not random steps
+    N0body.prototype._applyGroovePreset = function() {
+        var state = this.currentState;
+        var presets = GROOVE_PRESETS[state];
+        if (!presets || presets.length === 0) return;
+
+        var preset = randomFrom(presets);
+
+        for (var track in preset) {
+            if (!preset.hasOwnProperty(track)) continue;
+            var patternName = preset[track];
+            var pattern = DRUM_PATTERNS[patternName];
+            if (!pattern) continue;
+
+            var trackNum = parseInt(track);
+            for (var step = 0; step < 16; step++) {
+                MK1.sequencer.setStep(trackNum, step + 1, pattern[step] === 1);
+            }
+        }
+
+        this._trackPattern('groove', preset);
+    };
+
+    // Intentional subtraction — mute all tracks briefly, then restore
+    // The silence creates tension; the return creates impact
+    N0body.prototype._intentionalMute = function() {
+        if (this._isMuted) return;
+
+        var self = this;
+        this._isMuted = true;
+
+        // Mute: clear all active tracks
+        for (var track = 1; track <= 8; track++) {
+            for (var step = 1; step <= 16; step++) {
+                MK1.sequencer.setStep(track, step, false);
+            }
+        }
+        console.log('n0body: intentional mute — sustracción');
+
+        // Restore after 2-8 beats (duration based on BPM)
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var muteDuration = beatMs * randomIntBetween(2, 8);
+
+        setTimeout(function() {
+            self._isMuted = false;
+            // Bring back a groove preset — the return is the impact
+            self._applyGroovePreset();
+            console.log('n0body: groove restored');
+        }, muteDuration);
     };
 
     // ========== FX (all 6) ==========
