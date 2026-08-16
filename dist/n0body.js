@@ -95,6 +95,8 @@
         if (old.scaleChanges) fresh.scaleChanges = old.scaleChanges;
         if (old.scales) fresh.scales = old.scales;
         if (old.bpm) fresh.bpm = old.bpm;
+        if (old.grooveMemory) fresh.grooveMemory = old.grooveMemory;
+        if (old.grooveRejected) fresh.grooveRejected = old.grooveRejected;
         // Migrate old BPM preferences format
         if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
@@ -212,6 +214,14 @@
 
             // Session history for trend analysis
             sessionHistory: [],
+
+            // Groove memory — learned patterns with context and reward
+            // Key: "state_mood" (e.g. "peak_dark")
+            // Value: array of { pattern: {track: patternName}, reward, count, mutations }
+            grooveMemory: {},
+
+            // Grooves that consistently failed — never use again
+            grooveRejected: [],
         };
     }
 
@@ -652,6 +662,9 @@
                 self._learnStateDuration(state, self.stateTimeSpent[state], sessionReward);
             }
         });
+
+        // Learn grooves — which patterns worked in which context
+        this._learnGrooves(sessionReward);
 
         // Learn mid-session changes
         this._learnBPMChanges(sessionReward);
@@ -1145,6 +1158,110 @@
         this.pendingScaleChange = [];
     };
 
+    // ========== GROOVE LEARNING ==========
+    // Like a sesionista reviewing their session: "that groove in peak worked, keep it"
+
+    // Called during _tick to record what groove is playing and how it feels
+    N0body.prototype._trackGrooveReward = function() {
+        if (!this._currentGroove || !this._currentGrooveContext) return;
+
+        // Accumulate reward while this groove is active
+        var recentActions = this.shortTermMemory.getRecent(10);
+        var reward = evaluateReward(recentActions);
+
+        if (!this._grooveRewards) this._grooveRewards = [];
+        this._grooveRewards.push({
+            groove: this._currentGroove,
+            context: this._currentGrooveContext,
+            reward: reward,
+        });
+    };
+
+    // Called at session end — save what worked, reject what didn't
+    N0body.prototype._learnGrooves = function(sessionReward) {
+        if (!this._grooveRewards || this._grooveRewards.length === 0) return;
+
+        // Group rewards by groove+context
+        var grouped = {};
+        var self = this;
+        this._grooveRewards.forEach(function(entry) {
+            var key = entry.context + '::' + self._grooveKey(entry.groove);
+            if (!grouped[key]) {
+                grouped[key] = { groove: entry.groove, context: entry.context, rewards: [] };
+            }
+            grouped[key].rewards.push(entry.reward);
+        });
+
+        // Process each groove
+        for (var key in grouped) {
+            if (!grouped.hasOwnProperty(key)) continue;
+            var g = grouped[key];
+
+            // Average reward for this groove in this context
+            var avgReward = g.rewards.reduce(function(a, b) { return a + b; }, 0) / g.rewards.length;
+            // Weight session reward in (was the overall session good?)
+            var combinedReward = avgReward * 0.6 + sessionReward * 0.4;
+
+            var contextKey = g.context;
+            if (!this.knowledge.grooveMemory[contextKey]) {
+                this.knowledge.grooveMemory[contextKey] = [];
+            }
+
+            var memory = this.knowledge.grooveMemory[contextKey];
+            var grooveKey = this._grooveKey(g.groove);
+
+            // Find if we already know this groove
+            var existing = null;
+            for (var i = 0; i < memory.length; i++) {
+                if (this._grooveKey(memory[i].pattern) === grooveKey) {
+                    existing = memory[i];
+                    break;
+                }
+            }
+
+            if (existing) {
+                // Update running average
+                existing.reward = (existing.reward * existing.count + combinedReward) / (existing.count + 1);
+                existing.count++;
+            } else {
+                // New groove — remember it
+                memory.push({
+                    pattern: g.groove,
+                    reward: combinedReward,
+                    count: 1,
+                });
+            }
+
+            // Reject grooves that consistently score poorly (count > 3 and reward < -0.3)
+            if (existing && existing.count > 3 && existing.reward < -0.3) {
+                if (!this.knowledge.grooveRejected) this.knowledge.grooveRejected = [];
+                if (this.knowledge.grooveRejected.indexOf(grooveKey) === -1) {
+                    this.knowledge.grooveRejected.push(grooveKey);
+                    console.log('n0body: rejected groove in ' + contextKey + ' (reward: ' + existing.reward.toFixed(2) + ')');
+                    // Keep rejected list bounded
+                    if (this.knowledge.grooveRejected.length > 50) {
+                        this.knowledge.grooveRejected.shift();
+                    }
+                }
+            }
+
+            // Keep memory bounded — keep top 20 grooves per context
+            if (memory.length > 20) {
+                memory.sort(function(a, b) { return b.reward - a.reward; });
+                memory.length = 20;
+            }
+        }
+
+        var totalLearned = 0;
+        for (var ctx in this.knowledge.grooveMemory) {
+            totalLearned += this.knowledge.grooveMemory[ctx].length;
+        }
+        console.log('n0body: groove memory — ' + totalLearned + ' patterns across ' +
+            Object.keys(this.knowledge.grooveMemory).length + ' contexts');
+
+        this._grooveRewards = [];
+    };
+
     // ========== ENERGY TRACKING ==========
     N0body.prototype._trackEnergy = function(actionType) {
         if (!this.sessionEnergy) return;
@@ -1276,6 +1393,14 @@
         // Check LLM for artistic direction
         if (this.llm) {
             this.llm.maybeConsult();
+        }
+
+        // Track groove quality every ~5 seconds (every 25 ticks at 200ms)
+        if (!this._grooveTrackCounter) this._grooveTrackCounter = 0;
+        this._grooveTrackCounter++;
+        if (this._grooveTrackCounter >= 25) {
+            this._grooveTrackCounter = 0;
+            this._trackGrooveReward();
         }
 
         // Check for silence directive
@@ -1594,17 +1719,82 @@
         this._learn({ type: 'sequencer' });
     };
 
-    // Apply a complete groove preset — patterns as units, not random steps
+    // Choose and apply a groove — learned favorites first, presets as fallback
+    // Like a sesionista: start by copying, develop favorites, mutate over time
     N0body.prototype._applyGroovePreset = function() {
         var state = this.currentState;
-        var presets = GROOVE_PRESETS[state];
-        if (!presets || presets.length === 0) return;
+        var mood = this.currentMood || 'neutral';
+        var contextKey = state + '_' + mood;
+        var groove = null;
 
-        var preset = randomFrom(presets);
+        // Check if this groove is rejected
+        var self = this;
+        function isRejected(g) {
+            var rejected = self.knowledge.grooveRejected || [];
+            var gKey = self._grooveKey(g);
+            return rejected.indexOf(gKey) !== -1;
+        }
 
-        for (var track in preset) {
-            if (!preset.hasOwnProperty(track)) continue;
-            var patternName = preset[track];
+        // PHASE 1: Try learned grooves (exploitation)
+        var memory = this.knowledge.grooveMemory[contextKey];
+        if (memory && memory.length > 0 && Math.random() >= this.getExplorationRate()) {
+            // Weight by reward — favorites get picked more
+            var weights = {};
+            for (var i = 0; i < memory.length; i++) {
+                var key = this._grooveKey(memory[i].pattern);
+                if (!isRejected(memory[i].pattern)) {
+                    weights[i] = Math.max(0.1, memory[i].reward);
+                }
+            }
+
+            if (Object.keys(weights).length > 0) {
+                var chosen = weightedChoice(weights);
+                var learned = memory[parseInt(chosen)];
+
+                // With experience, mutate favorites instead of playing verbatim
+                if (this.knowledge.sessionsPlayed > 15 && Math.random() < 0.3) {
+                    groove = this._mutateGroove(learned.pattern);
+                    console.log('n0body: playing mutated groove (' + contextKey + ')');
+                } else {
+                    groove = learned.pattern;
+                    console.log('n0body: playing learned groove (' + contextKey + ', reward: ' + learned.reward.toFixed(2) + ')');
+                }
+            }
+        }
+
+        // PHASE 2: Exploration — pick from presets or create variation
+        if (!groove) {
+            var presets = GROOVE_PRESETS[state];
+            if (!presets || presets.length === 0) return;
+            groove = JSON.parse(JSON.stringify(randomFrom(presets)));
+
+            // Newborns (sessions < 10): play presets as-is (copying/imitation)
+            // Learning (10-30): occasionally mutate a preset
+            // Developing+ (30+): frequently mutate
+            if (this.knowledge.sessionsPlayed > 30 && Math.random() < 0.4) {
+                groove = this._mutateGroove(groove);
+                console.log('n0body: exploring mutated preset (' + state + ')');
+            } else if (this.knowledge.sessionsPlayed > 10 && Math.random() < 0.2) {
+                groove = this._mutateGroove(groove);
+                console.log('n0body: exploring variation (' + state + ')');
+            }
+        }
+
+        // Apply the groove to the sequencer
+        this._applyGrooveToSequencer(groove);
+
+        // Track what we played for learning later
+        this._currentGroove = groove;
+        this._currentGrooveContext = contextKey;
+        this._currentGrooveStartTime = Date.now();
+        this._trackPattern('groove', groove);
+    };
+
+    // Apply a groove object to the MK1 sequencer
+    N0body.prototype._applyGrooveToSequencer = function(groove) {
+        for (var track in groove) {
+            if (!groove.hasOwnProperty(track)) continue;
+            var patternName = groove[track];
             var pattern = DRUM_PATTERNS[patternName];
             if (!pattern) continue;
 
@@ -1613,8 +1803,69 @@
                 MK1.sequencer.setStep(trackNum, step + 1, pattern[step] === 1);
             }
         }
+    };
 
-        this._trackPattern('groove', preset);
+    // Mutate a groove — change 1-2 elements, like a musician experimenting
+    // "What if I swap the hat pattern?" "What if I add a rim?"
+    N0body.prototype._mutateGroove = function(original) {
+        var groove = JSON.parse(JSON.stringify(original));
+        var mutations = randomIntBetween(1, 2);
+
+        for (var m = 0; m < mutations; m++) {
+            var roll = Math.random();
+
+            if (roll < 0.4) {
+                // Swap a track's pattern for a different one of the same instrument family
+                var tracks = Object.keys(groove);
+                if (tracks.length === 0) continue;
+                var track = randomFrom(tracks);
+                var trackNum = parseInt(track);
+                var alternatives = this._getAlternativePatterns(trackNum);
+                if (alternatives.length > 0) {
+                    groove[track] = randomFrom(alternatives);
+                }
+            } else if (roll < 0.7) {
+                // Add a track that wasn't there
+                var missing = [1,2,3,6,8].filter(function(t) { return !groove[t]; });
+                if (missing.length > 0) {
+                    var newTrack = randomFrom(missing);
+                    var patterns = this._getAlternativePatterns(newTrack);
+                    if (patterns.length > 0) {
+                        groove[newTrack] = randomFrom(patterns);
+                    }
+                }
+            } else {
+                // Remove a track (subtraction as composition)
+                var removable = Object.keys(groove).filter(function(t) { return parseInt(t) !== 1; }); // never remove kick
+                if (removable.length > 0) {
+                    delete groove[randomFrom(removable)];
+                }
+            }
+        }
+
+        return groove;
+    };
+
+    // Get pattern alternatives appropriate for a given track number
+    N0body.prototype._getAlternativePatterns = function(trackNum) {
+        // mk-1 tracks: 1=kick, 2=snare, 3=hihat, 4=clap, 5=tom, 6=perc, 7=cymbal, 8=rim
+        switch(trackNum) {
+            case 1: return ['kick_four', 'kick_minimal', 'kick_syncopated', 'kick_broken'];
+            case 2: return ['snare_backbeat', 'snare_offbeat', 'snare_sparse', 'silent'];
+            case 3: return ['hat_eighth', 'hat_sixteenth', 'hat_offbeat', 'hat_sparse'];
+            case 4: return ['snare_offbeat', 'perc_accent', 'silent'];
+            case 5: return ['perc_accent', 'rim_ghost', 'silent'];
+            case 6: return ['perc_accent', 'rim_ghost', 'silent'];
+            case 7: return ['hat_sparse', 'silent'];
+            case 8: return ['rim_ghost', 'perc_accent', 'silent'];
+            default: return ['silent'];
+        }
+    };
+
+    // Generate a string key for a groove (for dedup and rejection)
+    N0body.prototype._grooveKey = function(groove) {
+        var keys = Object.keys(groove).sort();
+        return keys.map(function(k) { return k + ':' + groove[k]; }).join('|');
     };
 
     // Intentional subtraction — mute all tracks briefly, then restore
