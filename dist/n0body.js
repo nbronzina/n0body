@@ -2208,7 +2208,10 @@
 
                     var text = data.choices[0].message.content;
                     // Clean up response (remove markdown if present)
-                    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+                    var tick = String.fromCharCode(96);
+                    var mdFence = new RegExp(tick + tick + tick + 'json\\n?', 'g');
+                    var mdFenceClose = new RegExp(tick + tick + tick + '\\n?', 'g');
+                    text = text.replace(mdFence, '').replace(mdFenceClose, '').trim();
 
                     var content;
                     try {
