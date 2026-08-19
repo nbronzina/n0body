@@ -97,6 +97,8 @@
         if (old.bpm) fresh.bpm = old.bpm;
         if (old.grooveMemory) fresh.grooveMemory = old.grooveMemory;
         if (old.grooveRejected) fresh.grooveRejected = old.grooveRejected;
+        if (old.phraseMemory) fresh.phraseMemory = old.phraseMemory;
+        if (old.phraseRejected) fresh.phraseRejected = old.phraseRejected;
         // Migrate old BPM preferences format
         if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
@@ -217,30 +219,80 @@
 
             // Groove memory — learned patterns with context and reward
             // Key: "state_mood" (e.g. "peak_dark")
-            // Value: array of { pattern: {track: patternName}, reward, count, mutations }
+            // Value: array of { pattern: {track: patternName}, reward, count }
             grooveMemory: {},
 
             // Grooves that consistently failed — never use again
             grooveRejected: [],
+
+            // Phrase memory — learned synth phrases with context and reward
+            // Key: "state_mood_scale" (e.g. "peak_dark_cMinor")
+            // Value: array of { notes: [{note, duration}], reward, count }
+            phraseMemory: {},
+
+            // Phrases that consistently failed
+            phraseRejected: [],
         };
     }
 
-    function evaluateReward(recentActions) {
+    // State-aware reward evaluation — different states have different criteria
+    // for what "sounds right". Intro without synth is fine; breakdown without drums is fine.
+    function evaluateReward(recentActions, state) {
         if (recentActions.length < 3) return 0;
         var now = Date.now();
         var score = 0;
 
         var actionsLast2Sec = recentActions.filter(function(a) { return now - a.timestamp < 2000; }).length;
-        if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
-        else if (actionsLast2Sec > 7) score -= 1;
-        else if (actionsLast2Sec === 0) score -= 0.5;
-
         var types = {};
         recentActions.forEach(function(a) { types[a.type] = true; });
         var typeCount = Object.keys(types).length;
-        if (typeCount >= 2) score += 0.5;
-        if (typeCount >= 3) score += 0.3;
 
+        // Density expectations per state
+        switch (state) {
+            case 'intro':
+                // Intro: sparse is good. Drums only is fine. No synth expected.
+                if (actionsLast2Sec >= 1 && actionsLast2Sec <= 3) score += 1;
+                else if (actionsLast2Sec > 5) score -= 1;
+                if (actionsLast2Sec === 0) score += 0.3; // silence is OK in intro
+                if (types.drum) score += 0.5; // drums present = good
+                break;
+
+            case 'buildup':
+                // Buildup: moderate density, variety starting to appear
+                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
+                else if (actionsLast2Sec > 7) score -= 0.5;
+                if (typeCount >= 2) score += 0.5;
+                break;
+
+            case 'peak':
+                // Peak: density and variety both matter
+                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 6) score += 1;
+                else if (actionsLast2Sec > 8) score -= 1;
+                if (typeCount >= 2) score += 0.5;
+                if (typeCount >= 3) score += 0.3;
+                break;
+
+            case 'breakdown':
+                // Breakdown: synth alone is good. Low density is expected.
+                if (actionsLast2Sec >= 1 && actionsLast2Sec <= 3) score += 1;
+                if (actionsLast2Sec === 0) score += 0.2; // space is good
+                if (types.synth) score += 0.8; // synth as protagonist = good
+                // Don't penalize lack of drums — they're supposed to be gone
+                break;
+
+            case 'outro':
+                // Outro: very sparse, silence is golden
+                if (actionsLast2Sec <= 1) score += 1;
+                if (actionsLast2Sec === 0) score += 0.5;
+                if (actionsLast2Sec > 3) score -= 1;
+                break;
+
+            default:
+                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
+                if (typeCount >= 2) score += 0.5;
+        }
+
+        // Rhythm consistency (applies to all states with enough actions)
         if (recentActions.length >= 4) {
             var intervals = [];
             for (var i = 1; i < recentActions.length; i++) {
@@ -390,7 +442,7 @@
                 probability: 0.005,
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0, 8: 0.01 }
             },
-            synth: { probability: 0.30, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 800, max: 2000 } },
+            synth: { probability: 0.20, noteDuration: { min: 1.5, max: 4 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0, max: 0.15 }, crush: { min: 0, max: 0 } },
         },
@@ -399,7 +451,7 @@
                 probability: 0.01,
                 padWeights: { 1: 0.15, 2: 0.08, 3: 0.12, 4: 0.04, 5: 0.03, 6: 0.05, 7: 0.02, 8: 0.04 }
             },
-            synth: { probability: 0.45, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 500, max: 1500 } },
+            synth: { probability: 0.30, noteDuration: { min: 0.5, max: 2 } },
             sequencer: { active: true, density: 0.15, tracksActive: [1, 2, 3, 8] },
             fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.15, max: 0.35 }, filter: { min: 0.5, max: 0.7 }, distortion: { min: 0, max: 0.1 }, chorus: { min: 0.1, max: 0.25 }, crush: { min: 0, max: 0 } },
         },
@@ -408,7 +460,7 @@
                 probability: 0.015,
                 padWeights: { 1: 0.20, 2: 0.15, 3: 0.18, 4: 0.08, 5: 0.06, 6: 0.08, 7: 0.05, 8: 0.06 }
             },
-            synth: { probability: 0.55, noteDuration: { min: 0.2, max: 1.2 }, noteSpacing: { min: 300, max: 900 } },
+            synth: { probability: 0.40, noteDuration: { min: 0.2, max: 1.2 } },
             sequencer: { active: true, density: 0.35, tracksActive: [1, 2, 3, 4, 5, 6, 8] },
             fx: { reverb: { min: 0.5, max: 0.75 }, delay: { min: 0.25, max: 0.5 }, filter: { min: 0.6, max: 0.85 }, distortion: { min: 0.05, max: 0.2 }, chorus: { min: 0.15, max: 0.35 }, crush: { min: 0, max: 0.1 } },
         },
@@ -417,7 +469,7 @@
                 probability: 0.008,
                 padWeights: { 1: 0.08, 2: 0.04, 3: 0.06, 4: 0.03, 5: 0.02, 6: 0.04, 7: 0.01, 8: 0.03 }
             },
-            synth: { probability: 0.35, noteDuration: { min: 0.8, max: 2.5 }, noteSpacing: { min: 600, max: 1500 } },
+            synth: { probability: 0.25, noteDuration: { min: 0.8, max: 2.5 } },
             sequencer: { active: true, density: 0.1, tracksActive: [1, 2, 3, 6] },
             fx: { reverb: { min: 0.45, max: 0.6 }, delay: { min: 0.1, max: 0.25 }, filter: { min: 0.35, max: 0.55 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0.1, max: 0.2 }, crush: { min: 0, max: 0 } },
         },
@@ -426,56 +478,73 @@
                 probability: 0.003,
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0.01, 8: 0 }
             },
-            synth: { probability: 0.20, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 1200, max: 3000 } },
+            synth: { probability: 0.12, noteDuration: { min: 1.5, max: 4 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.6, max: 0.8 }, delay: { min: 0, max: 0.1 }, filter: { min: 0.2, max: 0.4 }, distortion: { min: 0, max: 0 }, chorus: { min: 0, max: 0.1 }, crush: { min: 0, max: 0 } },
         },
     };
 
     // ========== DRUM PATTERN TEMPLATES ==========
-    // Patterns as units — not random steps. 1 = hit, 0 = rest. 16 steps.
+    // Patterns as units. 1 = hit, 0 = rest. 16 steps.
+    // Hybrid palette: Burial-style broken + DJ-structural + Arca-asymmetric
     var DRUM_PATTERNS = {
-        // kick patterns
-        kick_four: [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],
-        kick_minimal: [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-        kick_syncopated: [1,0,0,1,0,0,1,0,0,0,1,0,0,0,0,0],
-        kick_broken: [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],
-        // snare patterns
-        snare_backbeat: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-        snare_offbeat: [0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0],
-        snare_sparse: [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
-        // hihat patterns
-        hat_eighth: [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],
-        hat_sixteenth: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-        hat_offbeat: [0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0],
-        hat_sparse: [0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0],
-        // perc/rim accents
-        perc_accent: [0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0],
-        rim_ghost: [0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],
+        // kick — from structural to broken to Burial-erratic
+        kick_pulse:     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],  // single anchor
+        kick_minimal:   [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],  // half-bar pulse
+        kick_four:      [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],  // structural
+        kick_broken:    [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],  // breakbeat
+        kick_burial:    [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0],  // off-grid, handmade
+        kick_stutter:   [1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0],  // double hit + space
+        kick_absent:    [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],  // almost not there
+        // snare/clap — from ghost to rupture
+        snare_ghost:    [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0],  // barely there
+        snare_backbeat: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],  // structural
+        snare_offbeat:  [0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0],  // displaced
+        snare_erratic:  [0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0],  // asymmetric
+        // hihat — from texture to rhythm
+        hat_sparse:     [0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0],  // breathing
+        hat_offbeat:    [0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0],  // UK garage
+        hat_shuffle:    [1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,0],  // triplet feel
+        hat_texture:    [0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0],  // Burial crackle rhythm
+        hat_eighth:     [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],  // driving
+        // percussion — texture and accident
+        perc_accident:  [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],  // a single event
+        perc_scatter:   [0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0],  // irregular
+        rim_ghost:      [0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],  // subtle
+        rim_vinyl:      [0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],  // crackle-like
         // empty
-        silent: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        silent:         [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     };
 
-    // Pattern sets by energy level — complete groove presets
+    // Groove presets — hybrid palette
+    // Each state has textural/experimental AND structural options
+    // n0body learns which ones work for each mood
     var GROOVE_PRESETS = {
         intro: [
-            { 1: 'kick_minimal', 3: 'silent', 6: 'silent' },
+            { 1: 'kick_pulse' },                                              // single anchor
+            { 1: 'kick_absent', 8: 'rim_vinyl' },                            // barely present
+            { 3: 'hat_texture' },                                             // texture only, no kick
         ],
         buildup: [
-            { 1: 'kick_four', 2: 'snare_sparse', 3: 'hat_offbeat' },
-            { 1: 'kick_syncopated', 2: 'snare_backbeat', 3: 'hat_sparse', 8: 'rim_ghost' },
+            { 1: 'kick_minimal', 3: 'hat_sparse' },                          // space-first
+            { 1: 'kick_burial', 3: 'hat_offbeat', 8: 'rim_ghost' },          // Burial feel
+            { 1: 'kick_four', 2: 'snare_ghost', 3: 'hat_offbeat' },          // structural build
+            { 1: 'kick_broken', 3: 'hat_shuffle' },                          // breakbeat build
         ],
         peak: [
-            { 1: 'kick_four', 2: 'snare_backbeat', 3: 'hat_eighth', 6: 'perc_accent' },
-            { 1: 'kick_broken', 2: 'snare_offbeat', 3: 'hat_sixteenth', 8: 'rim_ghost' },
-            { 1: 'kick_syncopated', 2: 'snare_backbeat', 3: 'hat_eighth', 6: 'perc_accent', 8: 'rim_ghost' },
+            { 1: 'kick_four', 2: 'snare_backbeat', 3: 'hat_eighth' },        // full structural
+            { 1: 'kick_broken', 2: 'snare_erratic', 3: 'hat_shuffle', 6: 'perc_scatter' },  // Burial peak
+            { 1: 'kick_burial', 2: 'snare_offbeat', 3: 'hat_texture', 8: 'rim_vinyl' },     // textural peak
+            { 1: 'kick_stutter', 2: 'snare_backbeat', 3: 'hat_offbeat', 6: 'perc_accident' }, // rupture-ready
         ],
         breakdown: [
-            { 1: 'kick_minimal', 2: 'silent', 3: 'hat_sparse' },
-            { 1: 'kick_minimal', 6: 'perc_accent' },
+            { 1: 'kick_absent', 3: 'hat_texture' },                          // almost silence
+            { 1: 'kick_pulse', 6: 'perc_accident' },                         // single events
+            { 3: 'hat_sparse', 8: 'rim_ghost' },                             // no kick at all
         ],
         outro: [
-            { 1: 'kick_minimal', 3: 'silent' },
+            { 1: 'kick_absent' },                                            // dissolving
+            { 8: 'rim_vinyl' },                                               // texture only
         ],
     };
 
@@ -626,6 +695,8 @@
         if (this._bpmInterval) { clearInterval(this._bpmInterval); this._bpmInterval = null; }
         if (this._planTimeouts) { this._planTimeouts.forEach(function(id) { clearTimeout(id); }); this._planTimeouts = []; }
         if (this._phraseTimeouts) { this._phraseTimeouts.forEach(function(id) { clearTimeout(id); }); this._phraseTimeouts = []; }
+        if (this._filterSweepTimer) { clearInterval(this._filterSweepTimer); this._filterSweepTimer = null; }
+        if (this._layerTimers) { this._layerTimers.forEach(function(id) { clearTimeout(id); }); this._layerTimers = []; }
 
         // Reset MK1
         MK1.sequencer.stop();
@@ -663,8 +734,9 @@
             }
         });
 
-        // Learn grooves — which patterns worked in which context
+        // Learn grooves and phrases — which patterns worked in which context
         this._learnGrooves(sessionReward);
+        this._learnPhrases(sessionReward);
 
         // Learn mid-session changes
         this._learnBPMChanges(sessionReward);
@@ -826,7 +898,7 @@
         var contextualAction = { type: action.type, pad: action.pad, note: action.note, param: action.param, value: action.value, context: { state: this.currentState, bpm: this.currentBPM, scale: this.currentScaleName, mood: this.currentMood } };
         this.shortTermMemory.add(contextualAction);
         var recentActions = this.shortTermMemory.getRecent(10);
-        var reward = evaluateReward(recentActions);
+        var reward = evaluateReward(recentActions, this.currentState);
         var lr = getLearningRate(this.knowledge.sessionsPlayed);
         this._updatePreferences(action, reward, lr);
         this._learnCombos(reward, lr);
@@ -1162,12 +1234,15 @@
     // Like a sesionista reviewing their session: "that groove in peak worked, keep it"
 
     // Called during _tick to record what groove is playing and how it feels
+    // Only tracks when groove is active — not during mute or breakdown
     N0body.prototype._trackGrooveReward = function() {
         if (!this._currentGroove || !this._currentGrooveContext) return;
+        // Don't score groove during mute (silence) or breakdown (drums off)
+        if (this._isMuted) return;
+        if (this.currentState === 'breakdown') return;
 
-        // Accumulate reward while this groove is active
         var recentActions = this.shortTermMemory.getRecent(10);
-        var reward = evaluateReward(recentActions);
+        var reward = evaluateReward(recentActions, this.currentState);
 
         if (!this._grooveRewards) this._grooveRewards = [];
         this._grooveRewards.push({
@@ -1260,6 +1335,78 @@
             Object.keys(this.knowledge.grooveMemory).length + ' contexts');
 
         this._grooveRewards = [];
+    };
+
+    // ========== PHRASE LEARNING ==========
+    // Same pattern as groove learning: save what worked, reject what didn't
+
+    N0body.prototype._learnPhrases = function(sessionReward) {
+        if (!this._phraseRewardsSession || this._phraseRewardsSession.length === 0) return;
+
+        var grouped = {};
+        this._phraseRewardsSession.forEach(function(entry) {
+            var key = entry.context + '::' + entry.notes.map(function(n) { return n.note; }).join('-');
+            if (!grouped[key]) {
+                grouped[key] = { notes: entry.notes, context: entry.context, rewards: [] };
+            }
+            grouped[key].rewards.push(entry.reward);
+        });
+
+        for (var key in grouped) {
+            if (!grouped.hasOwnProperty(key)) continue;
+            var g = grouped[key];
+            var avgReward = g.rewards.reduce(function(a, b) { return a + b; }, 0) / g.rewards.length;
+            var combinedReward = avgReward * 0.6 + sessionReward * 0.4;
+
+            var contextKey = g.context;
+            if (!this.knowledge.phraseMemory[contextKey]) {
+                this.knowledge.phraseMemory[contextKey] = [];
+            }
+
+            var memory = this.knowledge.phraseMemory[contextKey];
+            var phraseKey = g.notes.map(function(n) { return n.note; }).join('-');
+
+            // Find existing
+            var existing = null;
+            for (var i = 0; i < memory.length; i++) {
+                var existingKey = memory[i].notes.map(function(n) { return n.note; }).join('-');
+                if (existingKey === phraseKey) {
+                    existing = memory[i];
+                    break;
+                }
+            }
+
+            if (existing) {
+                existing.reward = (existing.reward * existing.count + combinedReward) / (existing.count + 1);
+                existing.count++;
+            } else {
+                memory.push({ notes: g.notes, reward: combinedReward, count: 1 });
+            }
+
+            // Reject consistently bad phrases
+            if (existing && existing.count > 3 && existing.reward < -0.3) {
+                if (!this.knowledge.phraseRejected) this.knowledge.phraseRejected = [];
+                if (this.knowledge.phraseRejected.indexOf(phraseKey) === -1) {
+                    this.knowledge.phraseRejected.push(phraseKey);
+                    if (this.knowledge.phraseRejected.length > 50) this.knowledge.phraseRejected.shift();
+                }
+            }
+
+            // Keep top 15 phrases per context
+            if (memory.length > 15) {
+                memory.sort(function(a, b) { return b.reward - a.reward; });
+                memory.length = 15;
+            }
+        }
+
+        var totalPhrases = 0;
+        for (var ctx in this.knowledge.phraseMemory) {
+            totalPhrases += this.knowledge.phraseMemory[ctx].length;
+        }
+        console.log('n0body: phrase memory — ' + totalPhrases + ' phrases across ' +
+            Object.keys(this.knowledge.phraseMemory).length + ' contexts');
+
+        this._phraseRewardsSession = [];
     };
 
     // ========== ENERGY TRACKING ==========
@@ -1473,7 +1620,32 @@
         var stateConf = this.stateConfig[newState];
         if (stateConf.sequencer.active) { if (!MK1.sequencer.isPlaying()) MK1.sequencer.start(); }
         else { if (MK1.sequencer.isPlaying()) MK1.sequencer.stop(); }
-        this._applyAllFx();
+
+        // Filter sweep as transition (Chemical Brothers / Jamie xx technique)
+        // Instead of jumping FX values, sweep the filter over 8 bars
+        this._filterSweepTransition(newState);
+
+        // Reset phrase on state change — new state, new musical idea
+        this._currentPhrase = null;
+        this._phraseRepeats = 0;
+
+        // In breakdown: stop sequencer — melody is the protagonist
+        if (newState === 'breakdown') {
+            if (MK1.sequencer.isPlaying()) MK1.sequencer.stop();
+            for (var t = 1; t <= 8; t++) {
+                for (var s = 1; s <= 16; s++) {
+                    MK1.sequencer.setStep(t, s, false);
+                }
+            }
+            console.log('n0body: breakdown — drums out, synth takes over');
+        }
+
+        // Gradual layer introduction when building up from sparse state
+        // Like Jamie xx / Massive Attack: each element enters alone
+        if ((newState === 'buildup' || newState === 'peak') &&
+            (this.previousState === 'intro' || this.previousState === 'breakdown')) {
+            this._gradualLayerIntro();
+        }
 
         this.previousState = this.currentState;
     };
@@ -1662,38 +1834,206 @@
         }
     };
 
+    // ========== SYNTH: PHRASE-BASED, STATE-AWARE ==========
+    // Like a real musician: generate a short phrase, repeat it, then move on.
+    // Synth is silent in intro/outro. Enters in buildup. Stars in breakdown.
+
     N0body.prototype._scheduleSynth = function() {
         if (!this.isPlaying) return;
         var self = this;
-        var stateConf = this.stateConfig[this.currentState];
-        // Apply director presence modifier and supervisor polyphony scale
-        var probability = stateConf.synth.probability * (this._synthPresenceModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
-        if (Math.random() < probability) {
-            var note = this._chooseSynthNote();
-            var duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
-            MK1.synth.play(note, duration);
-            this.stats.synthNotesPlayed++;
-            this._learn({ type: 'synth', note: note });
-            this._trackEnergy('synth');
-            this._trackAction({ type: 'synth', note: note, duration: duration });
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+
+        // Synth presence by state — not all states have synth
+        // Like a real track: ~50% of the time has melody, ~50% is drums only
+        switch (this.currentState) {
+            case 'intro':
+                // No synth in intro — drums establish the groove first
+                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * 4);
+                return;
+            case 'outro':
+                // Outro: one long sustained note every 4-8 bars, fading
+                if (Math.random() < 0.15) {
+                    var outroNote = this._chooseSynthNote();
+                    MK1.synth.play(outroNote, randomBetween(2, 5));
+                    this.stats.synthNotesPlayed++;
+                    this._trackAction({ type: 'synth', note: outroNote, duration: 3 });
+                }
+                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * randomFrom([4, 4, 8, 8]));
+                return;
         }
 
-        // Quantize synth timing to beat grid — notes land in relation to the groove
-        // instead of firing on an independent random timer
-        var beatMs = 60000 / (this.currentBPM || 120);
-        var subdivisions = [0.25, 0.5, 0.5, 1, 1, 1, 2, 2, 4]; // weighted toward half and full beats
-        var subdiv = randomFrom(subdivisions);
-        var gridSpacing = beatMs * subdiv;
+        // For buildup/peak/breakdown: play phrases, not single notes
+        // Generate or repeat a phrase
+        if (!this._currentPhrase || this._phraseRepeats >= this._phraseMaxRepeats) {
+            this._generatePhrase();
+        }
 
-        // Apply humanization: ±timing ms of drift around the grid point
+        // Play the next note in the current phrase
+        this._playPhraseNote();
+    };
+
+    // Generate a new 2-4 note phrase that repeats for 4-16 bars
+    // Generate or recall a phrase — same learning flow as grooves:
+    // newborn copies (random), learning develops favorites, experienced mutates
+    N0body.prototype._generatePhrase = function() {
+        var state = this.currentState;
+        var mood = this.currentMood || 'neutral';
+        var scale = this.currentScaleName || 'cMinor';
+        var contextKey = state + '_' + mood + '_' + scale;
+        var stateConf = this.stateConfig[state];
+        var notes = null;
+
+        // Check phrase memory — exploitation
+        var memory = this.knowledge.phraseMemory[contextKey];
+        var rejected = this.knowledge.phraseRejected || [];
+
+        if (memory && memory.length > 0 && Math.random() >= this.getExplorationRate()) {
+            // Weight by reward
+            var weights = {};
+            for (var i = 0; i < memory.length; i++) {
+                var pKey = memory[i].notes.map(function(n) { return n.note; }).join('-');
+                if (rejected.indexOf(pKey) === -1) {
+                    weights[i] = Math.max(0.1, memory[i].reward);
+                }
+            }
+
+            if (Object.keys(weights).length > 0) {
+                var chosen = parseInt(weightedChoice(weights));
+                var learned = memory[chosen];
+
+                // With experience, mutate favorite phrases
+                if (this.knowledge.sessionsPlayed > 15 && Math.random() < 0.3) {
+                    notes = this._mutatePhrase(learned.notes, stateConf);
+                    console.log('n0body: mutated phrase (' + contextKey + ')');
+                } else {
+                    notes = JSON.parse(JSON.stringify(learned.notes));
+                    console.log('n0body: recalled phrase (' + contextKey + ', reward: ' + learned.reward.toFixed(2) + ')');
+                }
+            }
+        }
+
+        // Exploration — generate a new phrase
+        if (!notes) {
+            var noteCount = randomIntBetween(2, 4);
+            notes = [];
+            for (var j = 0; j < noteCount; j++) {
+                notes.push({
+                    note: this._chooseSynthNote(),
+                    duration: randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max),
+                });
+            }
+
+            // Developing+: mutate the new phrase occasionally
+            if (this.knowledge.sessionsPlayed > 30 && Math.random() < 0.3) {
+                notes = this._mutatePhrase(notes, stateConf);
+            }
+        }
+
+        this._currentPhrase = notes;
+        this._phraseIndex = 0;
+        this._phraseRepeats = 0;
+        this._phraseContext = contextKey;
+
+        switch (state) {
+            case 'buildup':   this._phraseMaxRepeats = randomIntBetween(2, 4); break;
+            case 'peak':      this._phraseMaxRepeats = randomIntBetween(4, 8); break;
+            case 'breakdown': this._phraseMaxRepeats = randomIntBetween(2, 4); break;
+            default:          this._phraseMaxRepeats = randomIntBetween(2, 4);
+        }
+
+        // Track for learning
+        if (!this._phraseRewardsSession) this._phraseRewardsSession = [];
+        this._trackPattern('phrase', { notes: notes.map(function(n) { return n.note; }), state: state });
+    };
+
+    // Mutate a phrase — change 1 note's pitch or duration
+    N0body.prototype._mutatePhrase = function(original, stateConf) {
+        var notes = JSON.parse(JSON.stringify(original));
+        var idx = randomIntBetween(0, notes.length - 1);
+
+        if (Math.random() < 0.7) {
+            // Change pitch — stepwise from current note
+            notes[idx].note = this._chooseSynthNote();
+        } else {
+            // Change duration
+            notes[idx].duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
+        }
+        return notes;
+    };
+
+    // Play the next note in the current phrase, then schedule the next
+    N0body.prototype._playPhraseNote = function() {
+        if (!this.isPlaying || !this._currentPhrase) return;
+        var self = this;
+        var beatMs = 60000 / (this.currentBPM || 120);
+
+        var phrase = this._currentPhrase;
+        var noteData = phrase[this._phraseIndex];
+
+        // Apply probability gate — in buildup, sometimes skip notes (phrase fading in)
+        var playChance = 1.0;
+        if (this.currentState === 'buildup') {
+            playChance = 0.6 * (this._synthPresenceModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
+        } else {
+            playChance = (this._synthPresenceModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
+        }
+
+        if (Math.random() < playChance) {
+            MK1.synth.play(noteData.note, noteData.duration);
+            this.stats.synthNotesPlayed++;
+            this._learn({ type: 'synth', note: noteData.note });
+            this._trackEnergy('synth');
+            this._trackAction({ type: 'synth', note: noteData.note, duration: noteData.duration });
+        }
+
+        // Advance phrase position
+        this._phraseIndex++;
+        if (this._phraseIndex >= phrase.length) {
+            this._phraseIndex = 0;
+            this._phraseRepeats++;
+
+            // Score this phrase repetition for learning
+            if (this._phraseContext) {
+                var recentActions = this.shortTermMemory.getRecent(10);
+                var reward = evaluateReward(recentActions, this.currentState);
+                if (!this._phraseRewardsSession) this._phraseRewardsSession = [];
+                this._phraseRewardsSession.push({
+                    notes: this._currentPhrase,
+                    context: this._phraseContext,
+                    reward: reward,
+                });
+            }
+        }
+
+        // Schedule next note on beat grid
+        // Subdivisions per state: peak tighter, breakdown wider
+        var subdivisions;
+        switch (this.currentState) {
+            case 'buildup':   subdivisions = [1, 1, 2, 2];       break;
+            case 'peak':      subdivisions = [0.5, 1, 1, 1];     break;
+            case 'breakdown': subdivisions = [1, 2, 2, 4];       break;
+            default:          subdivisions = [1, 1, 2, 2];
+        }
+
+        var gridSpacing = beatMs * randomFrom(subdivisions);
+
+        // Synth-to-kick relationship — not always the same:
+        // 50% offbeat (groove, Kaytranada) — synth lands between kicks
+        // 30% on-beat (weight, Massive Attack) — synth lands with kicks
+        // 20% erratic (Burial) — random offset, handmade feel
+        if (this.currentState === 'buildup' || this.currentState === 'peak') {
+            var feel = Math.random();
+            if (feel < 0.5) {
+                gridSpacing += beatMs * 0.5;         // offbeat — groove
+            } else if (feel >= 0.8) {
+                gridSpacing += beatMs * randomBetween(0.15, 0.85); // erratic — Burial
+            }
+            // else: on-beat — no offset, synth lands with kick
+        }
+
         var humanized = gridSpacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
 
-        // In sparse states (intro/outro), allow skipping grid points
-        if (this.currentState === 'intro' || this.currentState === 'outro') {
-            humanized *= randomFrom([1, 2, 2, 3, 4]); // skip 1-4 grid points
-        }
-
-        // Minimum 300ms between synth notes to prevent audio overload
         this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(300, humanized));
     };
 
@@ -1894,6 +2234,151 @@
             self._applyGroovePreset();
             console.log('n0body: groove restored');
         }, muteDuration);
+    };
+
+    // ========== PRODUCTION TECHNIQUES ==========
+
+    // Transition technique — not always the same. Three modes:
+    // 1. Filter sweep (DJ/structural) — LP closes then opens over 4-8 bars
+    // 2. Rupture (Arca) — abrupt cut, immediate new state, no smoothing
+    // 3. Space shift (Burial) — reverb swells, filter stays, space transitions
+    N0body.prototype._filterSweepTransition = function(newState) {
+        if (this._filterSweepTimer) clearInterval(this._filterSweepTimer);
+
+        var self = this;
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+
+        // Choose transition mode — weighted by mood
+        var mode;
+        if (this.currentMood === 'dark') {
+            mode = randomFrom(['sweep', 'rupture', 'rupture', 'space', 'space']);  // dark: more rupture/space
+        } else if (this.currentMood === 'bright') {
+            mode = randomFrom(['sweep', 'sweep', 'sweep', 'rupture', 'space']);   // bright: more sweep
+        } else {
+            mode = randomFrom(['sweep', 'rupture', 'space']);                      // neutral: equal
+        }
+
+        if (mode === 'rupture') {
+            // Arca-style: immediate cut to new FX, no smoothing
+            this._applyAllFx();
+            console.log('n0body: transition — rupture');
+            return;
+        }
+
+        if (mode === 'space') {
+            // Burial-style: reverb swells over 4 bars, then new state FX apply
+            var reverbStart = this.currentFx.reverb;
+            var steps = 16;
+            var stepMs = (barMs * 4) / steps;
+            var currentStep = 0;
+
+            this._filterSweepTimer = setInterval(function() {
+                currentStep++;
+                var progress = currentStep / steps;
+                // Reverb rises to 0.85, then settles to target
+                var reverbValue;
+                if (progress <= 0.6) {
+                    reverbValue = reverbStart + (0.85 - reverbStart) * (progress / 0.6);
+                } else {
+                    var targetReverb = self._chooseFxValue('reverb');
+                    reverbValue = 0.85 + (targetReverb - 0.85) * ((progress - 0.6) / 0.4);
+                }
+                MK1.fx.setReverb(reverbValue);
+                self.currentFx.reverb = reverbValue;
+
+                if (currentStep >= steps) {
+                    clearInterval(self._filterSweepTimer);
+                    self._filterSweepTimer = null;
+                    self._applyAllFx();
+                }
+            }, stepMs);
+            console.log('n0body: transition — space shift');
+            return;
+        }
+
+        // Default: filter sweep over 4-8 bars
+        var sweepBars = randomFrom([4, 6, 8]);
+        var sweepDuration = barMs * sweepBars;
+        var startFilter = this.currentFx.filter;
+        var targetFilter = this._chooseFxValue('filter');
+        var steps = 24;
+        var stepMs = sweepDuration / steps;
+        var currentStep = 0;
+
+        this._filterSweepTimer = setInterval(function() {
+            currentStep++;
+            var progress = currentStep / steps;
+            var filterValue;
+
+            if (progress <= 0.5) {
+                filterValue = startFilter + (0.1 - startFilter) * (progress * 2);
+            } else {
+                filterValue = 0.1 + (targetFilter - 0.1) * ((progress - 0.5) * 2);
+            }
+
+            self.currentFx.filter = filterValue;
+            MK1.fx.setFilter(filterValue);
+
+            if (currentStep >= steps) {
+                clearInterval(self._filterSweepTimer);
+                self._filterSweepTimer = null;
+                self._applyAllFx();
+            }
+        }, stepMs);
+        console.log('n0body: transition — filter sweep (' + sweepBars + ' bars)');
+    };
+
+    // Gradual layer introduction — each element enters 4-8 bars apart
+    // Like Jamie xx / Massive Attack: never add two elements at once
+    N0body.prototype._gradualLayerIntro = function() {
+        if (!this.isPlaying) return;
+        var self = this;
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+
+        // Clear any existing layer timers
+        if (this._layerTimers) {
+            this._layerTimers.forEach(function(t) { clearTimeout(t); });
+        }
+        this._layerTimers = [];
+
+        // Get current groove — apply tracks one at a time
+        var stateConf = this.stateConfig[this.currentState];
+        if (!stateConf.sequencer.active) return;
+
+        var presets = GROOVE_PRESETS[this.currentState];
+        if (!presets || presets.length === 0) return;
+        var groove = JSON.parse(JSON.stringify(randomFrom(presets)));
+        var tracks = Object.keys(groove);
+
+        // First: clear everything
+        for (var t = 1; t <= 8; t++) {
+            for (var s = 1; s <= 16; s++) {
+                MK1.sequencer.setStep(t, s, false);
+            }
+        }
+
+        // Then: introduce each track 4-8 bars apart
+        tracks.forEach(function(track, index) {
+            var delay = barMs * randomIntBetween(4, 8) * index;
+            var tid = setTimeout(function() {
+                if (!self.isPlaying) return;
+                var patternName = groove[track];
+                var pattern = DRUM_PATTERNS[patternName];
+                if (!pattern) return;
+                var trackNum = parseInt(track);
+                for (var step = 0; step < 16; step++) {
+                    MK1.sequencer.setStep(trackNum, step + 1, pattern[step] === 1);
+                }
+                console.log('n0body: layer in — track ' + trackNum + ' (' + patternName + ')');
+            }, delay);
+            self._layerTimers.push(tid);
+        });
+
+        this._currentGroove = groove;
+        this._currentGrooveContext = this.currentState + '_' + (this.currentMood || 'neutral');
+        this._currentGrooveStartTime = Date.now();
     };
 
     // ========== FX (all 6) ==========
