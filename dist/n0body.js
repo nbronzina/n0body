@@ -1475,6 +1475,22 @@
         else { if (MK1.sequencer.isPlaying()) MK1.sequencer.stop(); }
         this._applyAllFx();
 
+        // Reset phrase on state change — new state, new musical idea
+        this._currentPhrase = null;
+        this._phraseRepeats = 0;
+
+        // In breakdown: stop sequencer — melody is the protagonist
+        if (newState === 'breakdown') {
+            if (MK1.sequencer.isPlaying()) MK1.sequencer.stop();
+            // Clear sequencer pattern — silence the drums
+            for (var t = 1; t <= 8; t++) {
+                for (var s = 1; s <= 16; s++) {
+                    MK1.sequencer.setStep(t, s, false);
+                }
+            }
+            console.log('n0body: breakdown — drums out, synth takes over');
+        }
+
         this.previousState = this.currentState;
     };
 
@@ -1662,41 +1678,121 @@
         }
     };
 
+    // ========== SYNTH: PHRASE-BASED, STATE-AWARE ==========
+    // Like a real musician: generate a short phrase, repeat it, then move on.
+    // Synth is silent in intro/outro. Enters in buildup. Stars in breakdown.
+
     N0body.prototype._scheduleSynth = function() {
         if (!this.isPlaying) return;
         var self = this;
-        var stateConf = this.stateConfig[this.currentState];
-        // Apply director presence modifier and supervisor polyphony scale
-        var probability = stateConf.synth.probability * (this._synthPresenceModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
-        if (Math.random() < probability) {
-            var note = this._chooseSynthNote();
-            var duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
-            MK1.synth.play(note, duration);
-            this.stats.synthNotesPlayed++;
-            this._learn({ type: 'synth', note: note });
-            this._trackEnergy('synth');
-            this._trackAction({ type: 'synth', note: note, duration: duration });
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+
+        // Synth presence by state — not all states have synth
+        // Like a real track: ~50% of the time has melody, ~50% is drums only
+        switch (this.currentState) {
+            case 'intro':
+                // No synth in intro — drums establish the groove first
+                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * 4);
+                return;
+            case 'outro':
+                // Outro: one long sustained note every 4-8 bars, fading
+                if (Math.random() < 0.15) {
+                    var outroNote = this._chooseSynthNote();
+                    MK1.synth.play(outroNote, randomBetween(2, 5));
+                    this.stats.synthNotesPlayed++;
+                    this._trackAction({ type: 'synth', note: outroNote, duration: 3 });
+                }
+                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * randomFrom([4, 4, 8, 8]));
+                return;
         }
 
-        // Quantize synth timing to beat grid — notes land in relation to the groove
-        // Subdivisions per state: sparse states = wide spacing, dense states = tighter
+        // For buildup/peak/breakdown: play phrases, not single notes
+        // Generate or repeat a phrase
+        if (!this._currentPhrase || this._phraseRepeats >= this._phraseMaxRepeats) {
+            this._generatePhrase();
+        }
+
+        // Play the next note in the current phrase
+        this._playPhraseNote();
+    };
+
+    // Generate a new 2-4 note phrase that repeats for 4-16 bars
+    N0body.prototype._generatePhrase = function() {
+        var noteCount = randomIntBetween(2, 4);
+        var notes = [];
+        var stateConf = this.stateConfig[this.currentState];
+
+        // Build the phrase using stepwise motion from current position
+        for (var i = 0; i < noteCount; i++) {
+            notes.push({
+                note: this._chooseSynthNote(),
+                duration: randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max),
+            });
+        }
+
+        this._currentPhrase = notes;
+        this._phraseIndex = 0;
+        this._phraseRepeats = 0;
+
+        // How long to repeat: shorter phrases repeat more
+        // buildup: 4-8 bars, peak: 8-16 bars, breakdown: 4-8 bars
+        switch (this.currentState) {
+            case 'buildup':   this._phraseMaxRepeats = randomIntBetween(2, 4); break;
+            case 'peak':      this._phraseMaxRepeats = randomIntBetween(4, 8); break;
+            case 'breakdown': this._phraseMaxRepeats = randomIntBetween(2, 4); break;
+            default:          this._phraseMaxRepeats = randomIntBetween(2, 4);
+        }
+
+        console.log('n0body: new phrase — ' + notes.length + ' notes, ' + this._phraseMaxRepeats + ' repeats (' + this.currentState + ')');
+        this._trackPattern('phrase', { notes: notes.map(function(n) { return n.note; }), state: this.currentState });
+    };
+
+    // Play the next note in the current phrase, then schedule the next
+    N0body.prototype._playPhraseNote = function() {
+        if (!this.isPlaying || !this._currentPhrase) return;
+        var self = this;
         var beatMs = 60000 / (this.currentBPM || 120);
+
+        var phrase = this._currentPhrase;
+        var noteData = phrase[this._phraseIndex];
+
+        // Apply probability gate — in buildup, sometimes skip notes (phrase fading in)
+        var playChance = 1.0;
+        if (this.currentState === 'buildup') {
+            playChance = 0.6 * (this._synthPresenceModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
+        } else {
+            playChance = (this._synthPresenceModifier || 1.0) * (this._supervisorPolyphonyScale || 1.0);
+        }
+
+        if (Math.random() < playChance) {
+            MK1.synth.play(noteData.note, noteData.duration);
+            this.stats.synthNotesPlayed++;
+            this._learn({ type: 'synth', note: noteData.note });
+            this._trackEnergy('synth');
+            this._trackAction({ type: 'synth', note: noteData.note, duration: noteData.duration });
+        }
+
+        // Advance phrase position
+        this._phraseIndex++;
+        if (this._phraseIndex >= phrase.length) {
+            this._phraseIndex = 0;
+            this._phraseRepeats++;
+        }
+
+        // Schedule next note on beat grid
+        // Subdivisions per state: peak tighter, breakdown wider
         var subdivisions;
         switch (this.currentState) {
-            case 'intro':     subdivisions = [2, 4, 4, 8, 8];       break; // 2-8 beats apart
-            case 'buildup':   subdivisions = [1, 1, 2, 2, 4];       break; // 1-4 beats apart
-            case 'peak':      subdivisions = [0.5, 1, 1, 1, 2];     break; // half to 2 beats
-            case 'breakdown': subdivisions = [1, 2, 2, 4, 4];       break; // 1-4 beats apart
-            case 'outro':     subdivisions = [2, 4, 4, 8, 8, 16];   break; // 2-16 beats apart
-            default:          subdivisions = [1, 2, 2, 4];
+            case 'buildup':   subdivisions = [1, 1, 2, 2];       break;
+            case 'peak':      subdivisions = [0.5, 1, 1, 1];     break;
+            case 'breakdown': subdivisions = [1, 2, 2, 4];       break;
+            default:          subdivisions = [1, 1, 2, 2];
         }
-        var subdiv = randomFrom(subdivisions);
-        var gridSpacing = beatMs * subdiv;
 
-        // Apply humanization: ±timing ms of drift around the grid point
+        var gridSpacing = beatMs * randomFrom(subdivisions);
         var humanized = gridSpacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
 
-        // Minimum 300ms between synth notes to prevent audio overload
         this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(300, humanized));
     };
 
