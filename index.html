@@ -4,248 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>n0body</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23000'/></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23080808'/></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        html, body {
-            height: 100%;
-            overflow: hidden;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; }
 
         body {
-            background: #050505;
-            color: #e0e0e0;
-            font-family: 'JetBrains Mono', monospace;
-            display: flex;
-            flex-direction: column;
+            background: #08080a;
+            color: #e8d4b8;
+            font-family: 'Space Mono', monospace;
         }
 
-        /* ========== HEADER ========== */
+        /* ========== MK-1 FILLS EVERYTHING ========== */
 
-        .header {
-            padding: 0.875rem 1.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-            flex-shrink: 0;
-            background: rgba(255,255,255,0.02);
+        .instrument {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
         }
 
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 2rem;
-        }
-
-        .logo {
-            font-size: 1.1rem;
-            font-weight: 500;
-            letter-spacing: 0.15em;
-            color: #fff;
-            text-transform: lowercase;
-        }
-
-        .controls {
-            display: flex;
-            gap: 0.4rem;
-        }
-
-        .btn {
-            background: rgba(255,255,255,0.9);
-            color: #000;
-            border: none;
-            padding: 0.4rem 1.1rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.7rem;
-            font-weight: 500;
-            text-transform: lowercase;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            letter-spacing: 0.05em;
-        }
-
-        .btn:hover:not(:disabled) {
-            background: #fff;
-            box-shadow: 0 0 12px rgba(255,255,255,0.15);
-        }
-
-        .btn:disabled {
-            background: rgba(255,255,255,0.08);
-            color: #555;
-            cursor: not-allowed;
-        }
-
-        .btn--stop {
-            background: transparent;
-            color: rgba(255,255,255,0.7);
-            border: 1px solid rgba(255,255,255,0.15);
-        }
-
-        .btn--stop:hover:not(:disabled) {
-            border-color: rgba(255,255,255,0.4);
-            color: #fff;
-        }
-
-        .btn--stop:disabled {
-            background: transparent;
-            border-color: rgba(255,255,255,0.06);
-            color: rgba(255,255,255,0.2);
-        }
-
-        /* ========== STATUS BAR ========== */
-
-        .status-bar {
-            padding: 0.6rem 1.5rem;
-            background: rgba(255,255,255,0.015);
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.4rem 1.5rem;
-            font-size: 0.65rem;
-            flex-shrink: 0;
-            letter-spacing: 0.02em;
-        }
-
-        .status-item {
-            display: flex;
-            gap: 0.35rem;
-            align-items: center;
-        }
-
-        .status-label {
-            color: rgba(255,255,255,0.25);
-        }
-
-        .status-value {
-            color: rgba(255,255,255,0.4);
-            transition: color 0.5s ease;
-        }
-
-        .status-value--active {
-            color: rgba(255,255,255,0.85);
-        }
-
-        .status-value--playing {
-            color: #4ade80;
-            text-shadow: 0 0 8px rgba(74,222,128,0.3);
-        }
-
-        /* ========== LLM INDICATOR ========== */
-
-        .llm-indicator {
-            display: none;
-        }
-
-        .llm-indicator[data-status="active"],
-        .llm-indicator[data-status="error"],
-        .llm-indicator[data-status="fallback"] {
-            display: flex;
-        }
-
-        .llm-dot {
-            width: 5px;
-            height: 5px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 4px;
-            align-self: center;
-        }
-
-        .llm-indicator[data-status="active"] .llm-dot {
-            background: #4ade80;
-            box-shadow: 0 0 6px rgba(74,222,128,0.5);
-            animation: pulse-dot 3s ease-in-out infinite;
-        }
-
-        .llm-indicator[data-status="error"] .llm-dot {
-            background: #fbbf24;
-            box-shadow: 0 0 6px rgba(251,191,36,0.5);
-        }
-
-        .llm-indicator[data-status="fallback"] .llm-dot,
-        .llm-indicator[data-status="inactive"] .llm-dot {
-            background: rgba(255,255,255,0.2);
-        }
-
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        /* ========== LLM CONFIG ========== */
-
-        .llm-config {
-            padding: 0.5rem 1.5rem;
-            font-size: 0.65rem;
-            opacity: 0.6;
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-            transition: opacity 0.3s;
-        }
-
-        .llm-config:hover {
-            opacity: 0.9;
-        }
-
-        .llm-config input {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: inherit;
-            padding: 4px 8px;
-            font-family: inherit;
-            font-size: inherit;
-            width: 180px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-
-        .llm-config input:focus {
-            border-color: rgba(255,255,255,0.3);
-        }
-
-        .llm-config input::placeholder {
-            color: rgba(255,255,255,0.2);
-        }
-
-        .llm-config button {
-            background: transparent;
-            border: 1px solid rgba(255,255,255,0.1);
-            color: inherit;
-            padding: 4px 8px;
-            font-family: inherit;
-            font-size: inherit;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .llm-config button:hover {
-            border-color: rgba(255,255,255,0.3);
-            color: #fff;
-        }
-
-        .llm-status-text {
-            color: #4ade80;
-        }
-
-        /* ========== IFRAME ========== */
-
-        .iframe-container {
-            flex: 1;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .iframe-container iframe {
+        .instrument iframe {
             width: 100%;
             height: 100%;
             border: none;
@@ -254,144 +35,259 @@
         /* ========== OVERLAYS ========== */
 
         .overlay {
-            position: absolute;
+            position: fixed;
             inset: 0;
-            background: #050505;
+            background: #08080a;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             gap: 1rem;
-            z-index: 10;
+            z-index: 50;
         }
 
-        .overlay--hidden {
-            display: none;
-        }
+        .overlay--hidden { display: none; }
 
         .loading-text {
-            font-size: 0.8rem;
-            color: rgba(255,255,255,0.3);
-            letter-spacing: 0.1em;
-            animation: fade-loading 2s ease-in-out infinite;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.85rem;
+            color: #3a3a42;
+            letter-spacing: 0.15em;
+            animation: signal-fade 2.5s ease-in-out infinite;
         }
 
-        @keyframes fade-loading {
-            0%, 100% { opacity: 0.3; }
-            50% { opacity: 0.8; }
+        @keyframes signal-fade {
+            0%, 100% { opacity: 0.2; color: #3a3a42; }
+            50% { opacity: 1; color: #e8d4b8; }
         }
 
         .error-text {
-            font-size: 0.8rem;
-            color: #ef4444;
+            font-size: 0.75rem;
+            color: #c9785c;
             text-align: center;
             max-width: 400px;
-            line-height: 1.6;
+            line-height: 1.8;
         }
 
         .error-text a {
-            color: rgba(255,255,255,0.8);
+            color: #e8d4b8;
             text-decoration: underline;
-            text-underline-offset: 2px;
+            text-underline-offset: 3px;
+        }
+
+        /* ========== BOTTOM BAR — n0body's presence ========== */
+
+        .n0body-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 40;
+            padding: 0.6rem 1.2rem;
+            background: rgba(8, 8, 10, 0.85);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border-top: 1px solid rgba(232, 212, 184, 0.06);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.65rem;
+            gap: 1rem;
+            transition: opacity 0.5s ease;
+        }
+
+        .n0body-bar__left {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .n0body-bar__name {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 500;
+            letter-spacing: 0.12em;
+            color: #e8d4b8;
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.3s;
+        }
+
+        .n0body-bar__name:hover {
+            color: #f0e6d0;
+        }
+
+        .n0body-bar__name--playing {
+            color: #f0e6d0;
+        }
+
+        .n0body-bar__play {
+            background: none;
+            border: 1px solid rgba(232, 212, 184, 0.2);
+            color: #e8d4b8;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.6rem;
+            padding: 0.25rem 0.7rem;
+            cursor: pointer;
+            letter-spacing: 0.08em;
+            transition: all 0.2s;
+        }
+
+        .n0body-bar__play:hover:not(:disabled) {
+            border-color: rgba(232, 212, 184, 0.5);
+            color: #f0e6d0;
+        }
+
+        .n0body-bar__play:disabled {
+            border-color: rgba(232, 212, 184, 0.06);
+            color: #3a3a42;
+            cursor: default;
+        }
+
+        .n0body-bar__status {
+            color: #3a3a42;
+            transition: color 0.5s ease;
+            white-space: nowrap;
+        }
+
+        .n0body-bar__status--active {
+            color: rgba(232, 212, 184, 0.6);
+        }
+
+        .n0body-bar__right {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .n0body-bar__learned {
+            color: #3a3a42;
+            font-size: 0.6rem;
+        }
+
+        .n0body-bar__dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #3a3a42;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+
+        .n0body-bar__dot--active {
+            background: #c9785c;
+            box-shadow: 0 0 8px rgba(201, 120, 92, 0.5);
+            animation: pulse-signal 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-signal {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* ========== API KEY MODAL ========== */
+
+        .key-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 60;
+            background: rgba(8, 8, 10, 0.92);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .key-modal--hidden { display: none; }
+
+        .key-modal__box {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .key-modal__title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.8rem;
+            color: #3a3a42;
+            letter-spacing: 0.1em;
+        }
+
+        .key-modal__input {
+            background: rgba(232, 212, 184, 0.03);
+            border: 1px solid rgba(232, 212, 184, 0.12);
+            color: #e8d4b8;
+            padding: 0.4rem 0.8rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.7rem;
+            width: 260px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .key-modal__input:focus {
+            border-color: rgba(232, 212, 184, 0.35);
+        }
+
+        .key-modal__input::placeholder {
+            color: #3a3a42;
+        }
+
+        .key-modal__btn {
+            background: transparent;
+            border: 1px solid rgba(232, 212, 184, 0.15);
+            color: #e8d4b8;
+            padding: 0.35rem 1rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.6rem;
+            cursor: pointer;
+            letter-spacing: 0.08em;
+            transition: all 0.2s;
+        }
+
+        .key-modal__btn:hover {
+            border-color: rgba(232, 212, 184, 0.4);
+            color: #f0e6d0;
+        }
+
+        .key-modal__actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.25rem;
+        }
+
+        .key-modal__link {
+            font-size: 0.55rem;
+            color: #3a3a42;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .key-modal__link:hover {
+            color: #e8d4b8;
         }
 
         /* ========== RESPONSIVE ========== */
 
         @media (max-width: 600px) {
-            .header {
-                flex-direction: column;
-                gap: 0.75rem;
-                align-items: flex-start;
+            .n0body-bar {
+                flex-wrap: wrap;
+                gap: 0.4rem;
+                padding: 0.5rem 0.8rem;
             }
-
-            .header-left {
+            .n0body-bar__right {
                 width: 100%;
                 justify-content: space-between;
-            }
-
-            .status-bar {
-                gap: 0.25rem 1rem;
-                font-size: 0.6rem;
             }
         }
     </style>
 </head>
 <body>
-    <header class="header">
-        <div class="header-left">
-            <div class="logo">n0body</div>
-            <div class="controls">
-                <button class="btn" id="startBtn" disabled>start</button>
-                <button class="btn btn--stop" id="stopBtn" disabled>stop</button>
-            </div>
-        </div>
-    </header>
 
-    <div class="status-bar">
-        <div class="status-item">
-            <span class="status-label">status:</span>
-            <span class="status-value" id="statusValue">loading</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">state:</span>
-            <span class="status-value" id="stateValue">—</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">elapsed:</span>
-            <span class="status-value" id="elapsedValue">—</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">scale:</span>
-            <span class="status-value" id="scaleValue">—</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">bpm:</span>
-            <span class="status-value" id="bpmValue">—</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">experience:</span>
-            <span class="status-value" id="experienceValue">—</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">mood:</span>
-            <span class="status-value" id="moodValue">—</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">learned:</span>
-            <span class="status-value" id="learnedValue">—</span>
-        </div>
-        <div class="status-item llm-indicator" id="llmIndicator" data-status="inactive">
-            <span class="llm-dot"></span>
-            <span class="status-value">brain</span>
-        </div>
-    </div>
-
-    <div id="llmConfig" class="llm-config">
-        <input type="password" id="llmApiKey" placeholder="groq api key">
-        <button id="llmSaveKey">activate brain</button>
-    </div>
-
-    <div id="llmActive" class="llm-config" style="display: none;">
-        <span class="llm-status-text">brain active</span>
-        <button id="llmClearKey">deactivate</button>
-        <button id="llmResetKey" style="opacity: 0.4; font-size: 0.65rem;">reset key</button>
-        <button id="llmReset">reset</button>
-    </div>
-
-    <script>
-        // Immediate key check — hide input before anything renders
-        (function() {
-            var storedKey = localStorage.getItem('n0body-llm-key');
-            if (storedKey) {
-                document.getElementById('llmConfig').style.display = 'none';
-                document.getElementById('llmActive').style.display = 'flex';
-            }
-        })();
-    </script>
-
-    <div class="iframe-container">
+    <!-- mk-1 fills the entire screen -->
+    <div class="instrument">
         <div class="overlay" id="loadingOverlay">
-            <div class="loading-text">loading mk-1...</div>
+            <div class="loading-text">n0body</div>
         </div>
         <div class="overlay overlay--hidden" id="errorOverlay">
             <div class="error-text" id="errorText"></div>
@@ -402,6 +298,41 @@
             allow="autoplay"
         ></iframe>
     </div>
+
+    <!-- API key modal — only shows if no key in localStorage -->
+    <div class="key-modal key-modal--hidden" id="keyModal">
+        <div class="key-modal__box">
+            <div class="key-modal__title">groq api key</div>
+            <input type="password" class="key-modal__input" id="llmApiKey" placeholder="gsk_...">
+            <button class="key-modal__btn" id="llmSaveKey">activate</button>
+        </div>
+    </div>
+
+    <!-- Bottom bar — n0body's minimal presence -->
+    <div class="n0body-bar" id="n0bodyBar">
+        <div class="n0body-bar__left">
+            <span class="n0body-bar__name" id="n0bodyName">n0body</span>
+            <button class="n0body-bar__play" id="startBtn" disabled>▸</button>
+            <button class="n0body-bar__play" id="stopBtn" disabled>■</button>
+            <span class="n0body-bar__status" id="statusText"></span>
+        </div>
+        <div class="n0body-bar__right">
+            <span class="n0body-bar__learned" id="learnedValue"></span>
+            <span class="n0body-bar__dot" id="brainDot"></span>
+            <span class="key-modal__link" id="llmResetKey">key</span>
+            <span class="key-modal__link" id="llmReset">reset</span>
+        </div>
+    </div>
+
+    <script>
+        // Immediate key check — show modal only if no key stored
+        (function() {
+            var storedKey = localStorage.getItem('n0body-llm-key');
+            if (!storedKey) {
+                document.getElementById('keyModal').classList.remove('key-modal--hidden');
+            }
+        })();
+    </script>
 
     <script>
         // ========== N0BODY BRAIN v3.2 (fully learnable) ==========
@@ -4305,20 +4236,13 @@
         const errorText = document.getElementById('errorText');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const statusValue = document.getElementById('statusValue');
-        const stateValue = document.getElementById('stateValue');
-        const elapsedValue = document.getElementById('elapsedValue');
-        const scaleValue = document.getElementById('scaleValue');
-        const bpmValue = document.getElementById('bpmValue');
-        const experienceValue = document.getElementById('experienceValue');
-        const moodValue = document.getElementById('moodValue');
+        const statusText = document.getElementById('statusText');
         const learnedValue = document.getElementById('learnedValue');
-        const llmIndicator = document.getElementById('llmIndicator');
-        const llmConfig = document.getElementById('llmConfig');
-        const llmActive = document.getElementById('llmActive');
+        const brainDot = document.getElementById('brainDot');
+        const n0bodyName = document.getElementById('n0bodyName');
+        const keyModal = document.getElementById('keyModal');
         const llmApiKey = document.getElementById('llmApiKey');
         const llmSaveKey = document.getElementById('llmSaveKey');
-        const llmClearKey = document.getElementById('llmClearKey');
         const llmResetKey = document.getElementById('llmResetKey');
         const llmReset = document.getElementById('llmReset');
 
@@ -4329,8 +4253,12 @@
         // ========== LLM STATUS LISTENER ==========
 
         window.addEventListener('n0body-llm-status', function(e) {
-            if (llmIndicator) {
-                llmIndicator.setAttribute('data-status', e.detail.status);
+            if (brainDot) {
+                if (e.detail.status === 'active') {
+                    brainDot.classList.add('n0body-bar__dot--active');
+                } else {
+                    brainDot.classList.remove('n0body-bar__dot--active');
+                }
             }
         });
 
@@ -4339,9 +4267,8 @@
         iframe.onload = () => {
             console.log('mk-1 iframe loaded');
 
-            // Wait for MK1 to be available in iframe
             let attempts = 0;
-            const maxAttempts = 50; // 5 seconds
+            const maxAttempts = 50;
 
             const checkMK1 = setInterval(() => {
                 attempts++;
@@ -4359,7 +4286,7 @@
                     }
                 } catch (e) {
                     clearInterval(checkMK1);
-                    showError(`Cross-origin error: Cannot access mk-1 iframe.<br><br>This page must be hosted on the same domain as mk-1, or mk-1 needs to allow cross-origin access.<br><br>Try opening mk-1 directly and using the console method.`);
+                    showError('Cross-origin error: Cannot access mk-1 iframe.<br><br>This page must be hosted on the same domain as mk-1.');
                 }
             }, 100);
         };
@@ -4372,12 +4299,10 @@
 
         function injectBrain(iframeWindow) {
             try {
-                // Create script element and inject
                 const script = iframeWindow.document.createElement('script');
                 script.textContent = N0BODY_BRAIN;
                 iframeWindow.document.body.appendChild(script);
 
-                // Wait for n0body to be available
                 setTimeout(() => {
                     if (iframeWindow.n0body) {
                         n0bodyRef = iframeWindow.n0body;
@@ -4397,27 +4322,16 @@
         function onReady() {
             loadingOverlay.classList.add('overlay--hidden');
             startBtn.disabled = false;
-            statusValue.textContent = 'idle';
             console.log('n0body ready');
 
-            // Show initial experience
-            const status = n0bodyRef.getStatus();
-            if (status.experience) {
-                experienceValue.textContent = status.experience.sessions + ' sessions · ' + status.experience.totalMinutes + ' min · ' + status.experience.level;
-            }
-
-            // Start status updates
             statusInterval = setInterval(updateStatus, 500);
 
-            // Get reference to LLM module
             n0bodyLLMRef = iframe.contentWindow.n0bodyLLM;
 
             // Auto-load API key from localStorage
             const savedKey = localStorage.getItem('n0body-llm-key');
             if (savedKey && n0bodyLLMRef) {
                 n0bodyLLMRef.activate(savedKey);
-                llmConfig.style.display = 'none';
-                llmActive.style.display = 'flex';
             }
         }
 
@@ -4432,22 +4346,18 @@
         startBtn.onclick = () => {
             if (!n0bodyRef) return;
 
-            // Click anywhere on iframe first to enable audio context
             try {
                 const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
                 const clickEvent = new MouseEvent('click', {
-                    bubbles: true,
-                    cancelable: true,
-                    view: iframe.contentWindow
+                    bubbles: true, cancelable: true, view: iframe.contentWindow
                 });
                 iframeDoc.body.dispatchEvent(clickEvent);
-            } catch (e) {
-                // Ignore cross-origin errors
-            }
+            } catch (e) {}
 
             n0bodyRef.start();
             startBtn.disabled = true;
             stopBtn.disabled = false;
+            n0bodyName.classList.add('n0body-bar__name--playing');
         };
 
         stopBtn.onclick = () => {
@@ -4455,110 +4365,74 @@
             n0bodyRef.stop();
             startBtn.disabled = false;
             stopBtn.disabled = true;
+            n0bodyName.classList.remove('n0body-bar__name--playing');
         };
 
-        // ========== LLM API KEY CONTROLS ==========
+        // ========== API KEY ==========
 
         llmSaveKey.onclick = () => {
             const key = llmApiKey.value.trim();
             if (key && n0bodyLLMRef) {
                 localStorage.setItem('n0body-llm-key', key);
                 n0bodyLLMRef.activate(key);
-                llmConfig.style.display = 'none';
-                llmActive.style.display = 'flex';
+                keyModal.classList.add('key-modal--hidden');
+                llmApiKey.value = '';
+            } else if (key && !n0bodyLLMRef) {
+                // Save for later — brain not loaded yet
+                localStorage.setItem('n0body-llm-key', key);
+                keyModal.classList.add('key-modal--hidden');
                 llmApiKey.value = '';
             }
         };
 
-        llmClearKey.onclick = () => {
-            localStorage.removeItem('n0body-llm-key');
-            if (n0bodyLLMRef) {
-                n0bodyLLMRef.deactivate();
-            }
-            llmConfig.style.display = 'flex';
-            llmActive.style.display = 'none';
-        };
-
         llmResetKey.onclick = () => {
             localStorage.removeItem('n0body-llm-key');
-            if (n0bodyLLMRef) {
-                n0bodyLLMRef.deactivate();
-            }
-            llmConfig.style.display = 'flex';
-            llmActive.style.display = 'none';
+            if (n0bodyLLMRef) n0bodyLLMRef.deactivate();
+            keyModal.classList.remove('key-modal--hidden');
         };
 
         llmReset.onclick = () => {
-            if (confirm('Reset all learning? n0body will start from zero.')) {
-                if (n0bodyRef) {
-                    n0bodyRef.resetLearning();
-                }
-                if (n0bodyLLMRef) {
-                    n0bodyLLMRef.resetSessionMemory();
-                }
+            if (confirm('Reset all learning? n0body starts from zero.')) {
+                if (n0bodyRef) n0bodyRef.resetLearning();
+                if (n0bodyLLMRef) n0bodyLLMRef.resetSessionMemory();
                 location.reload();
             }
         };
 
-        // ========== STATUS UPDATES ==========
+        // ========== STATUS ==========
 
         function updateStatus() {
             if (!n0bodyRef) return;
 
             const status = n0bodyRef.getStatus();
 
-            // Always update experience
-            if (status.experience) {
-                experienceValue.textContent = status.experience.sessions + ' sessions · ' + status.experience.totalMinutes + ' min · ' + status.experience.level;
-            }
-
-            // Learning stats (always visible)
+            // Learning stats
             if (n0bodyRef.knowledge) {
                 var k = n0bodyRef.knowledge;
                 var grooveCount = 0;
                 for (var gc in k.grooveMemory) grooveCount += (k.grooveMemory[gc] || []).length;
                 var phraseCount = 0;
                 for (var pc in k.phraseMemory) phraseCount += (k.phraseMemory[pc] || []).length;
-                var cal = k.rewardModel ? k.rewardModel.calibrations || 0 : 0;
-                var guideCount = k.evolvedGuidelines ? k.evolvedGuidelines.length : 0;
-                learnedValue.textContent = grooveCount + 'g · ' + phraseCount + 'p · ' + guideCount + ' rules · cal:' + cal;
+                var sessions = k.sessionsPlayed || 0;
+                learnedValue.textContent = sessions + ' sessions · ' + grooveCount + 'g · ' + phraseCount + 'p';
             }
 
             if (status.isPlaying) {
-                statusValue.textContent = status.isEnding ? 'ending' : 'playing';
-                statusValue.classList.add('status-value--playing');
-
-                stateValue.textContent = status.currentState + ' (' + status.timeInState + 's)';
-                stateValue.classList.add('status-value--active');
-
-                elapsedValue.textContent = status.elapsedFormatted;
-                elapsedValue.classList.add('status-value--active');
-
-                scaleValue.textContent = status.scale || '—';
-                scaleValue.classList.add('status-value--active');
-                bpmValue.textContent = status.bpm || '—';
-                bpmValue.classList.add('status-value--active');
-                moodValue.textContent = status.mood || '—';
-                moodValue.classList.add('status-value--active');
+                var stateInfo = status.currentState;
+                if (status.mood) stateInfo += ' · ' + status.mood;
+                stateInfo += ' · ' + status.elapsedFormatted;
+                if (status.bpm) stateInfo += ' · ' + status.bpm + 'bpm';
+                statusText.textContent = stateInfo;
+                statusText.classList.add('n0body-bar__status--active');
 
                 startBtn.disabled = true;
                 stopBtn.disabled = status.isEnding;
             } else {
-                statusValue.textContent = 'idle';
-                statusValue.classList.remove('status-value--playing');
-                stateValue.textContent = '—';
-                stateValue.classList.remove('status-value--active');
-                elapsedValue.textContent = '—';
-                elapsedValue.classList.remove('status-value--active');
-                scaleValue.textContent = '—';
-                scaleValue.classList.remove('status-value--active');
-                bpmValue.textContent = '—';
-                bpmValue.classList.remove('status-value--active');
-                moodValue.textContent = '—';
-                moodValue.classList.remove('status-value--active');
-
+                statusText.textContent = '';
+                statusText.classList.remove('n0body-bar__status--active');
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
+                n0bodyName.classList.remove('n0body-bar__name--playing');
             }
         }
 
