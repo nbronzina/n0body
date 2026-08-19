@@ -544,9 +544,9 @@
     // n0body learns which ones work for each mood
     var GROOVE_PRESETS = {
         intro: [
-            { 1: 'kick_pulse' },                                              // single anchor
-            { 1: 'kick_absent', 8: 'rim_vinyl' },                            // barely present
-            { 3: 'hat_texture' },                                             // texture only, no kick
+            { 1: 'kick_minimal', 3: 'hat_sparse' },                          // kick every 2 bars + hat texture
+            { 1: 'kick_minimal', 8: 'rim_vinyl' },                           // kick + rim crackle
+            { 1: 'kick_pulse', 3: 'hat_texture', 8: 'rim_ghost' },           // pulse + texture layers
         ],
         buildup: [
             { 1: 'kick_minimal', 3: 'hat_sparse' },                          // space-first
@@ -648,6 +648,13 @@
     N0body.prototype.start = function() {
         if (this.isPlaying) return;
         if (typeof MK1 === 'undefined') { console.error('n0body: MK1 not found'); return; }
+
+        // Resume AudioContext FIRST — this must happen in a user gesture context
+        // Without this, the sequencer runs silently (context is suspended)
+        if (MK1.utils && MK1.utils.resume) {
+            MK1.utils.resume();
+            console.log('n0body: AudioContext resumed');
+        }
 
         console.log('');
         console.log('n0body v3.2 is going live...');
@@ -1184,12 +1191,21 @@
         this.currentState = 'intro';
         this.stateStartTime = Date.now();
 
-        // Apply initial groove immediately — don't wait for tick loop
-        // The session should have rhythm from the first second
+        // Make sound IMMEDIATELY — the session must be audible from second 1
+        // 1. Start sequencer with a groove
         MK1.sequencer.start();
         this._applyGroovePreset();
         this._lastSeqTime = Date.now();
-        console.log('n0body: initial groove applied');
+
+        // 2. Hit a drum right now — instant feedback that something is alive
+        MK1.drums.hit(1); // kick
+
+        // 3. Play an opening synth note
+        var openingNote = this._chooseSynthNote();
+        MK1.synth.play(openingNote, randomBetween(2, 4));
+        this.stats.synthNotesPlayed++;
+
+        console.log('n0body: session started — groove + kick + synth');
     };
 
     N0body.prototype._chooseScale = function() {
