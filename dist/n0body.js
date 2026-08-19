@@ -3190,6 +3190,15 @@
                         throw new Error('Invalid JSON from LLM');
                     }
 
+                    // Score the previous decision before storing the new one
+                    var prevReward = null;
+                    if (this.sessionMemory.length > 0) {
+                        var recentActions = self.shortTermMemory.getRecent(10);
+                        prevReward = evaluateReward(recentActions, context.currentState, self.knowledge.rewardModel);
+                        // Attach reward to previous decision
+                        this.sessionMemory[this.sessionMemory.length - 1].outcomeReward = prevReward;
+                    }
+
                     // Store decision in session memory
                     this.sessionMemory.push({
                         timestamp: Date.now(),
@@ -3200,7 +3209,8 @@
                         decision: {
                             monologue: content.internal_monologue,
                             directives: content.directives
-                        }
+                        },
+                        outcomeReward: null // will be scored at next consult
                     });
                     // Keep only last 10 decisions
                     if (this.sessionMemory.length > 10) {
@@ -3479,14 +3489,22 @@
                 prompt += 'Current state:\n' + JSON.stringify(context, null, 2);
 
                 if (this.sessionMemory.length > 0) {
-                    prompt += '\n\nThis session so far:\n';
+                    prompt += '\n\nThis session so far (with outcome scores — learn from what worked):\n';
                     this.sessionMemory.forEach(function(mem) {
                         var mins = Math.floor(mem.sessionTime / 60);
                         var secs = String(Math.floor(mem.sessionTime % 60)).padStart(2, '0');
                         prompt += '\n[' + mins + ':' + secs + '] ';
-                        prompt += mem.state + '/' + mem.mood + ' → ';
-                        prompt += '"' + (mem.decision.monologue || '').substring(0, 80) + '"';
+                        prompt += mem.state + '/' + mem.mood;
+                        // Show reward outcome if available
+                        if (mem.outcomeReward !== null && mem.outcomeReward !== undefined) {
+                            var reward = mem.outcomeReward;
+                            var emoji = reward >= 1.5 ? ' ★★' : reward >= 0.5 ? ' ★' : reward <= -0.3 ? ' ✗' : '';
+                            prompt += ' [score: ' + reward.toFixed(1) + emoji + ']';
+                        }
+                        prompt += ' → "' + (mem.decision.monologue || '').substring(0, 80) + '"';
                     });
+                    prompt += '\n\nDecisions with ★ worked well — lean into that direction.';
+                    prompt += '\nDecisions with ✗ didn\'t work — try something different.';
                 }
 
                 prompt += '\n\nWhat\'s your next move?';
