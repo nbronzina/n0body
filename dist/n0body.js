@@ -2000,6 +2000,15 @@
         }
 
         var gridSpacing = beatMs * randomFrom(subdivisions);
+
+        // Kaytranada-style offbeat feel: shift synth notes to land BETWEEN kicks
+        // Kick lands on beats 1, 2, 3, 4 (every beatMs). Synth lands on the "and"
+        // (half a beat offset). Creates the groove/pump feeling without a compressor.
+        // Only in buildup/peak where kick pattern is running.
+        if (this.currentState === 'buildup' || this.currentState === 'peak') {
+            gridSpacing += beatMs * 0.5; // offset half a beat from the grid
+        }
+
         var humanized = gridSpacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
 
         this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(300, humanized));
