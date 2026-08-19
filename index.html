@@ -462,6 +462,8 @@
         if (old.phraseMemory) fresh.phraseMemory = old.phraseMemory;
         if (old.phraseRejected) fresh.phraseRejected = old.phraseRejected;
         if (old.rewardModel) fresh.rewardModel = old.rewardModel;
+        if (old.bestDecisions) fresh.bestDecisions = old.bestDecisions;
+        if (old.reflections) fresh.reflections = old.reflections;
         // Migrate old BPM preferences format
         if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
@@ -603,6 +605,12 @@
                 // Calibration count — how many sessions have shaped this model
                 calibrations: 0,
             },
+
+            // LLM self-improvement — best decisions and reflections
+            // Few-shot: decisions with ★★ (reward ≥ 1.5) saved as examples
+            bestDecisions: [],
+            // Reflections: Grok's self-assessment at end of each session
+            reflections: [],
 
             // Groove memory — learned patterns with context and reward
             // Key: "state_mood" (e.g. "peak_dark")
@@ -1112,6 +1120,12 @@
 
         // Calibrate reward model — n0body learns what "good" means
         this._calibrateRewardModel(sessionReward);
+
+        // Collect best LLM decisions as few-shot examples for future prompts
+        this._collectBestDecisions();
+
+        // Request end-of-session reflection from Grok
+        this._requestReflection(sessionReward);
 
         // Learn mid-session changes
         this._learnBPMChanges(sessionReward);
@@ -1779,6 +1793,106 @@
             ' variety=' + model.weights.variety.toFixed(2) +
             ' rhythm=' + model.weights.rhythm.toFixed(2) +
             ' space=' + model.weights.space.toFixed(2));
+    };
+
+    // ========== LLM SELF-IMPROVEMENT ==========
+
+    // Collect decisions with ★★ (reward ≥ 1.5) as few-shot examples
+    // These get injected into future prompts so Grok sees what worked
+    N0body.prototype._collectBestDecisions = function() {
+        if (!this.llm || !this.llm.sessionMemory) return;
+
+        var self = this;
+        this.llm.sessionMemory.forEach(function(mem) {
+            if (mem.outcomeReward >= 1.5 && mem.decision && mem.decision.monologue) {
+                var example = {
+                    state: mem.state,
+                    mood: mem.mood,
+                    monologue: mem.decision.monologue.substring(0, 120),
+                    reward: mem.outcomeReward,
+                };
+
+                if (!self.knowledge.bestDecisions) self.knowledge.bestDecisions = [];
+
+                // Avoid duplicates (same state+mood with similar monologue)
+                var dominated = self.knowledge.bestDecisions.some(function(d) {
+                    return d.state === example.state && d.mood === example.mood &&
+                           d.reward >= example.reward;
+                });
+
+                if (!dominated) {
+                    self.knowledge.bestDecisions.push(example);
+                    // Keep top 10 best decisions overall
+                    if (self.knowledge.bestDecisions.length > 10) {
+                        self.knowledge.bestDecisions.sort(function(a, b) { return b.reward - a.reward; });
+                        self.knowledge.bestDecisions.length = 10;
+                    }
+                }
+            }
+        });
+    };
+
+    // End-of-session reflection — ask Grok what it learned
+    // The reflection is saved and included in the next session's prompt
+    N0body.prototype._requestReflection = function(sessionReward) {
+        if (!this.llm || !this.llm.enabled || !this.llm.apiKey) return;
+
+        var self = this;
+        var sessionMemory = this.llm.sessionMemory || [];
+        if (sessionMemory.length < 2) return;
+
+        // Build a summary of this session's decisions and outcomes
+        var summary = sessionMemory.map(function(mem) {
+            var reward = mem.outcomeReward;
+            var label = reward >= 1.5 ? '★★' : reward >= 0.5 ? '★' : reward <= -0.3 ? '✗' : '—';
+            return mem.state + ' ' + label + ': "' + (mem.decision.monologue || '').substring(0, 60) + '"';
+        }).join('\\n');
+
+        var reflectionPrompt = 'Session just ended (overall score: ' + sessionReward.toFixed(1) + ').\\n\\n' +
+            'Your decisions and their outcomes:\\n' + summary + '\\n\\n' +
+            'In 2 sentences: what worked and what didn\\'t? What should you do differently next time?\\n' +
+            'Respond with ONLY the 2 sentences, no JSON.';
+
+        // Fire-and-forget async reflection call
+        fetch(this.llm.endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + this.llm.apiKey
+            },
+            body: JSON.stringify({
+                model: this.llm.model,
+                max_tokens: 100,
+                temperature: 0.7,
+                messages: [
+                    { role: 'system', content: 'You are n0body, an autonomous musical artist. Reflect briefly on your session.' },
+                    { role: 'user', content: reflectionPrompt }
+                ]
+            })
+        }).then(function(response) {
+            return response.json();
+        }).then(function(data) {
+            if (data.choices && data.choices[0] && data.choices[0].message) {
+                var reflection = data.choices[0].message.content.trim();
+
+                if (!self.knowledge.reflections) self.knowledge.reflections = [];
+                self.knowledge.reflections.push({
+                    sessionReward: sessionReward,
+                    reflection: reflection,
+                    timestamp: new Date().toISOString(),
+                });
+                // Keep last 5 reflections
+                if (self.knowledge.reflections.length > 5) {
+                    self.knowledge.reflections.shift();
+                }
+
+                // Save immediately since session is ending
+                saveKnowledge(self.knowledge);
+                console.log('[n0body] reflection: ' + reflection);
+            }
+        }).catch(function(e) {
+            console.warn('[n0body] reflection failed:', e.message || e);
+        });
     };
 
     // ========== PHRASE LEARNING ==========
@@ -3828,6 +3942,26 @@
                         prompt += JSON.stringify(knowledge.recentSessions, null, 2);
                     }
                     prompt += '\\n\\n---\\n\\n';
+                }
+
+                // Add best decisions as few-shot examples (what worked before)
+                var bestDecisions = self.knowledge.bestDecisions;
+                if (bestDecisions && bestDecisions.length > 0) {
+                    prompt += 'Your best decisions from past sessions (these WORKED — use them as inspiration):\\n';
+                    bestDecisions.slice(0, 5).forEach(function(d) {
+                        prompt += '- ' + d.state + '/' + d.mood + ' [★★ ' + d.reward.toFixed(1) + ']: "' + d.monologue + '"\\n';
+                    });
+                    prompt += '\\n';
+                }
+
+                // Add reflections from recent sessions (your own self-assessment)
+                var reflections = self.knowledge.reflections;
+                if (reflections && reflections.length > 0) {
+                    prompt += 'Your reflections from recent sessions:\\n';
+                    reflections.slice(-3).forEach(function(r) {
+                        prompt += '- (score ' + r.sessionReward.toFixed(1) + '): ' + r.reflection + '\\n';
+                    });
+                    prompt += '\\n';
                 }
 
                 // Add saved patterns
