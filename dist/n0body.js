@@ -2937,6 +2937,20 @@
                         console.log('[n0body director] drum pattern -> ' + patternsApplied.join(', '));
                         self._currentDrumPattern = pattern;
                         self._trackPattern('drum', pattern);
+
+                        // Register Grok's drum pattern in groove learning
+                        // so it enters the same evaluate → learn → favor/reject cycle
+                        var grooveFromGrok = {};
+                        for (var d in pattern) {
+                            if (tracks[d] !== undefined) {
+                                // Convert string pattern to a name for groove memory
+                                grooveFromGrok[tracks[d]] = 'grok_' + d + '_' + (typeof pattern[d] === 'string' ? pattern[d] : 'custom');
+                            }
+                        }
+                        self._currentGroove = grooveFromGrok;
+                        self._currentGrooveContext = self.currentState + '_' + (self.currentMood || 'neutral');
+                        self._currentGrooveStartTime = Date.now();
+
                         return true;
                     }
                     return false;
@@ -2963,6 +2977,18 @@
                     });
                     console.log('[n0body director] synth phrase -> ' + normalizedPhrase.length + ' notes');
                     self._trackPattern('synth', normalizedPhrase);
+
+                    // Register Grok's phrase in phrase learning
+                    // so it enters the same evaluate → learn → favor/reject cycle
+                    var phraseNotes = normalizedPhrase.map(function(n) {
+                        return { note: n.note, duration: n.duration };
+                    });
+                    self._currentPhrase = phraseNotes;
+                    self._phraseContext = self.currentState + '_' + (self.currentMood || 'neutral') + '_' + (self.currentScaleName || 'cMinor');
+                    self._phraseIndex = 0;
+                    self._phraseRepeats = 0;
+                    self._phraseMaxRepeats = 1; // Grok's phrases play once, then get scored
+
                     return true;
                 },
 
@@ -3653,6 +3679,48 @@
                         prompt += '- ' + p.name + ' (' + p.mood + '/' + p.state + ', rating: ' + (p.rating || 0) + ', used: ' + (p.timesUsed || 0) + 'x)\n';
                     });
                     prompt += '\n---\n\n';
+                }
+
+                // Add learned grooves — n0body's favorite drum patterns
+                var grooveCtx = self.currentState + '_' + (self.currentMood || 'neutral');
+                var grooveMemory = self.knowledge.grooveMemory[grooveCtx];
+                if (grooveMemory && grooveMemory.length > 0) {
+                    var topGrooves = grooveMemory.slice().sort(function(a, b) { return b.reward - a.reward; }).slice(0, 3);
+                    prompt += 'Your favorite grooves for ' + grooveCtx + ' (USE these in setDrumPattern):\n';
+                    topGrooves.forEach(function(g) {
+                        var tracks = Object.keys(g.pattern).map(function(t) {
+                            return 'track' + t + ':' + g.pattern[t];
+                        }).join(', ');
+                        prompt += '- [reward ' + g.reward.toFixed(1) + ', used ' + g.count + 'x] ' + tracks + '\n';
+                    });
+                    prompt += '\n';
+                }
+
+                // Add learned phrases — n0body's favorite melodies
+                var phraseCtx = self.currentState + '_' + (self.currentMood || 'neutral') + '_' + (self.currentScaleName || 'cMinor');
+                var phraseMemory = self.knowledge.phraseMemory[phraseCtx];
+                if (phraseMemory && phraseMemory.length > 0) {
+                    var topPhrases = phraseMemory.slice().sort(function(a, b) { return b.reward - a.reward; }).slice(0, 3);
+                    prompt += 'Your favorite phrases for ' + phraseCtx + ' (USE these in playSynthPhrase):\n';
+                    topPhrases.forEach(function(p) {
+                        var notes = p.notes.map(function(n) { return n.note; }).join(' → ');
+                        prompt += '- [reward ' + p.reward.toFixed(1) + '] ' + notes + '\n';
+                    });
+                    prompt += '\n';
+                }
+
+                // Add reward model state — what density works in each state
+                var rm = self.knowledge.rewardModel;
+                if (rm && rm.calibrations > 0) {
+                    prompt += 'Your learned sense of density (what feels right per state):\n';
+                    var states = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+                    states.forEach(function(s) {
+                        if (rm.optimalDensity[s]) {
+                            var opt = rm.optimalDensity[s];
+                            prompt += '- ' + s + ': ~' + opt.center.toFixed(1) + ' actions/2s (±' + opt.spread.toFixed(1) + ')\n';
+                        }
+                    });
+                    prompt += '(calibrated over ' + rm.calibrations + ' sessions)\n\n';
                 }
 
                 // Add musical feedback
