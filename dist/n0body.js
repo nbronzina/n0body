@@ -443,7 +443,7 @@
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0, 8: 0.01 }
             },
             synth: { probability: 0.20, noteDuration: { min: 1.5, max: 4 } },
-            sequencer: { active: false },
+            sequencer: { active: true, density: 0.08, tracksActive: [1, 8] },
             fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0, max: 0.15 }, crush: { min: 0, max: 0 } },
         },
         buildup: {
@@ -1629,15 +1629,23 @@
         this._currentPhrase = null;
         this._phraseRepeats = 0;
 
-        // In breakdown: stop sequencer — melody is the protagonist
+        // In breakdown: strip drums to a minimal anchor — synth is the protagonist
+        // but rhythm never fully disappears (the kick gives pulse)
         if (newState === 'breakdown') {
-            if (MK1.sequencer.isPlaying()) MK1.sequencer.stop();
+            // Clear everything first
             for (var t = 1; t <= 8; t++) {
                 for (var s = 1; s <= 16; s++) {
                     MK1.sequencer.setStep(t, s, false);
                 }
             }
-            console.log('n0body: breakdown — drums out, synth takes over');
+            // Keep a minimal kick as anchor — drums are the skeleton, always present
+            var kickPattern = DRUM_PATTERNS['kick_pulse'] || DRUM_PATTERNS['kick_absent'];
+            if (kickPattern) {
+                for (var ks = 0; ks < 16; ks++) {
+                    MK1.sequencer.setStep(1, ks + 1, kickPattern[ks] === 1);
+                }
+            }
+            console.log('n0body: breakdown — minimal kick anchor, synth takes over');
         }
 
         // Gradual layer introduction when building up from sparse state
@@ -1848,8 +1856,17 @@
         // Like a real track: ~50% of the time has melody, ~50% is drums only
         switch (this.currentState) {
             case 'intro':
-                // No synth in intro — drums establish the groove first
-                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * 4);
+                // Intro: long textural notes, wide spacing — Burial pads, not silence
+                if (Math.random() < 0.20) {
+                    var introNote = this._chooseSynthNote();
+                    var introDuration = randomBetween(2, 5);
+                    MK1.synth.play(introNote, introDuration);
+                    this.stats.synthNotesPlayed++;
+                    this._learn({ type: 'synth', note: introNote });
+                    this._trackEnergy('synth');
+                    this._trackAction({ type: 'synth', note: introNote, duration: introDuration });
+                }
+                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * randomFrom([2, 2, 4, 4, 8]));
                 return;
             case 'outro':
                 // Outro: one long sustained note every 4-8 bars, fading
@@ -2038,9 +2055,13 @@
     };
 
     N0body.prototype._maybeModifySequencer = function() {
-        // Throttle: minimum 2s between sequencer changes (patterns are units, not steps)
+        // Drums are the foundation — grooves change slowly (every 8-16 bars)
+        // Synth phrases change on top, rhythm stays stable underneath
         var now = Date.now();
-        if (this._lastSeqTime && now - this._lastSeqTime < 2000) return;
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+        var minInterval = barMs * randomFrom([8, 8, 12, 16]); // 8-16 bars
+        if (this._lastSeqTime && now - this._lastSeqTime < minInterval) return;
 
         var stateConf = this.stateConfig[this.currentState];
         if (!stateConf.sequencer.active) return;
