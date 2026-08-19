@@ -360,6 +360,52 @@
             <span class="status-label">learned:</span>
             <span class="status-value" id="learnedValue">—</span>
         </div>
+        <div class="status-item llm-indicator" id="llmIndicator" data-status="inactive">
+            <span class="llm-dot"></span>
+            <span class="status-value">brain</span>
+        </div>
+    </div>
+
+    <div id="llmConfig" class="llm-config">
+        <input type="password" id="llmApiKey" placeholder="groq api key">
+        <button id="llmSaveKey">activate brain</button>
+    </div>
+
+    <div id="llmActive" class="llm-config" style="display: none;">
+        <span class="llm-status-text">brain active</span>
+        <button id="llmClearKey">deactivate</button>
+        <button id="llmResetKey" style="opacity: 0.4; font-size: 0.65rem;">reset key</button>
+        <button id="llmReset">reset</button>
+    </div>
+
+    <script>
+        // Immediate key check — hide input before anything renders
+        (function() {
+            var storedKey = localStorage.getItem('n0body-llm-key');
+            if (storedKey) {
+                document.getElementById('llmConfig').style.display = 'none';
+                document.getElementById('llmActive').style.display = 'flex';
+            }
+        })();
+    </script>
+
+    <div class="iframe-container">
+        <div class="overlay" id="loadingOverlay">
+            <div class="loading-text">loading mk-1...</div>
+        </div>
+        <div class="overlay overlay--hidden" id="errorOverlay">
+            <div class="error-text" id="errorText"></div>
+        </div>
+        <iframe
+            id="mk1Frame"
+            src="https://nbronzina.github.io/playground/mk-1.html"
+            allow="autoplay"
+        ></iframe>
+    </div>
+
+    <script>
+        // ========== N0BODY BRAIN v3.2 (fully learnable) ==========
+        const N0BODY_BRAIN = `
 /**
  * n0body v3.2 — fully learnable, unlimited sessions
  * the first non-human performer of Playground
@@ -4232,6 +4278,7 @@
         console.log('[n0body] LLM module ready - call n0bodyLLM.activate(apiKey) to enable');
     }
 })();
+
 `;
 
         // ========== DOM ELEMENTS ==========
