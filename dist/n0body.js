@@ -99,6 +99,7 @@
         if (old.grooveRejected) fresh.grooveRejected = old.grooveRejected;
         if (old.phraseMemory) fresh.phraseMemory = old.phraseMemory;
         if (old.phraseRejected) fresh.phraseRejected = old.phraseRejected;
+        if (old.rewardModel) fresh.rewardModel = old.rewardModel;
         // Migrate old BPM preferences format
         if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
@@ -217,6 +218,30 @@
             // Session history for trend analysis
             sessionHistory: [],
 
+            // Self-calibrating reward model (inspired by RL-Duet / ReaLJam)
+            // Instead of hardcoded rules, n0body learns what "good" means
+            // from its own session history. Weights evolve with experience.
+            rewardModel: {
+                // Optimal action density per state (actions per 2 seconds)
+                // Starts with my guess, n0body adjusts based on session outcomes
+                optimalDensity: {
+                    intro: { center: 1.0, spread: 1.5 },
+                    buildup: { center: 3.0, spread: 2.0 },
+                    peak: { center: 4.0, spread: 2.0 },
+                    breakdown: { center: 1.5, spread: 1.5 },
+                    outro: { center: 0.5, spread: 1.0 },
+                },
+                // How much each factor matters (0-2, 1=neutral)
+                weights: {
+                    density: 1.0,    // matching optimal density for state
+                    variety: 0.5,    // mixing action types
+                    rhythm: 1.0,    // rhythmic consistency
+                    space: 0.3,     // silence/rest rewarded
+                },
+                // Calibration count — how many sessions have shaped this model
+                calibrations: 0,
+            },
+
             // Groove memory — learned patterns with context and reward
             // Key: "state_mood" (e.g. "peak_dark")
             // Value: array of { pattern: {track: patternName}, reward, count }
@@ -235,64 +260,43 @@
         };
     }
 
-    // State-aware reward evaluation — different states have different criteria
-    // for what "sounds right". Intro without synth is fine; breakdown without drums is fine.
-    function evaluateReward(recentActions, state) {
+    // Self-calibrating reward evaluation (inspired by RL-Duet / ReaLJam)
+    // Uses learned model when available, falls back to sensible defaults.
+    // The model evolves: n0body learns what "good" means from its own sessions.
+    function evaluateReward(recentActions, state, rewardModel) {
         if (recentActions.length < 3) return 0;
         var now = Date.now();
         var score = 0;
 
+        // Get learned parameters or defaults
+        var model = rewardModel || {};
+        var weights = (model.weights) || { density: 1.0, variety: 0.5, rhythm: 1.0, space: 0.3 };
+        var optDensity = (model.optimalDensity && model.optimalDensity[state]) ||
+            { center: 3, spread: 2 };
+
+        // Measure current metrics
         var actionsLast2Sec = recentActions.filter(function(a) { return now - a.timestamp < 2000; }).length;
         var types = {};
         recentActions.forEach(function(a) { types[a.type] = true; });
         var typeCount = Object.keys(types).length;
+        var hasRest = actionsLast2Sec === 0;
 
-        // Density expectations per state
-        switch (state) {
-            case 'intro':
-                // Intro: sparse is good. Drums only is fine. No synth expected.
-                if (actionsLast2Sec >= 1 && actionsLast2Sec <= 3) score += 1;
-                else if (actionsLast2Sec > 5) score -= 1;
-                if (actionsLast2Sec === 0) score += 0.3; // silence is OK in intro
-                if (types.drum) score += 0.5; // drums present = good
-                break;
-
-            case 'buildup':
-                // Buildup: moderate density, variety starting to appear
-                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
-                else if (actionsLast2Sec > 7) score -= 0.5;
-                if (typeCount >= 2) score += 0.5;
-                break;
-
-            case 'peak':
-                // Peak: density and variety both matter
-                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 6) score += 1;
-                else if (actionsLast2Sec > 8) score -= 1;
-                if (typeCount >= 2) score += 0.5;
-                if (typeCount >= 3) score += 0.3;
-                break;
-
-            case 'breakdown':
-                // Breakdown: synth alone is good. Low density is expected.
-                if (actionsLast2Sec >= 1 && actionsLast2Sec <= 3) score += 1;
-                if (actionsLast2Sec === 0) score += 0.2; // space is good
-                if (types.synth) score += 0.8; // synth as protagonist = good
-                // Don't penalize lack of drums — they're supposed to be gone
-                break;
-
-            case 'outro':
-                // Outro: very sparse, silence is golden
-                if (actionsLast2Sec <= 1) score += 1;
-                if (actionsLast2Sec === 0) score += 0.5;
-                if (actionsLast2Sec > 3) score -= 1;
-                break;
-
-            default:
-                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
-                if (typeCount >= 2) score += 0.5;
+        // 1. DENSITY — how close to the learned optimal for this state?
+        // Gaussian-style: closer to center = higher score
+        var densityDiff = Math.abs(actionsLast2Sec - optDensity.center);
+        var densityScore;
+        if (densityDiff <= optDensity.spread) {
+            densityScore = 1.0 - (densityDiff / optDensity.spread) * 0.5; // 0.5–1.0
+        } else {
+            densityScore = -0.5 * (densityDiff - optDensity.spread); // penalty
         }
+        score += densityScore * weights.density;
 
-        // Rhythm consistency (applies to all states with enough actions)
+        // 2. VARIETY — more action types = richer texture
+        var varietyScore = (typeCount - 1) * 0.4; // 0 types=−0.4, 1=0, 2=0.4, 3=0.8
+        score += varietyScore * weights.variety;
+
+        // 3. RHYTHM — consistent intervals = groove
         if (recentActions.length >= 4) {
             var intervals = [];
             for (var i = 1; i < recentActions.length; i++) {
@@ -301,7 +305,13 @@
             var avgInterval = intervals.reduce(function(a, b) { return a + b; }, 0) / intervals.length;
             var variance = intervals.reduce(function(sum, intv) { return sum + Math.pow(intv - avgInterval, 2); }, 0) / intervals.length;
             var stdDev = Math.sqrt(variance);
-            if (avgInterval > 0 && stdDev < avgInterval * 0.5) score += 1;
+            var rhythmScore = (avgInterval > 0 && stdDev < avgInterval * 0.5) ? 1.0 : 0;
+            score += rhythmScore * weights.rhythm;
+        }
+
+        // 4. SPACE — silence has value (especially in sparse states)
+        if (hasRest) {
+            score += weights.space;
         }
 
         return Math.max(-1, Math.min(3, score));
@@ -738,6 +748,9 @@
         this._learnGrooves(sessionReward);
         this._learnPhrases(sessionReward);
 
+        // Calibrate reward model — n0body learns what "good" means
+        this._calibrateRewardModel(sessionReward);
+
         // Learn mid-session changes
         this._learnBPMChanges(sessionReward);
         this._learnScaleChanges(sessionReward);
@@ -898,7 +911,7 @@
         var contextualAction = { type: action.type, pad: action.pad, note: action.note, param: action.param, value: action.value, context: { state: this.currentState, bpm: this.currentBPM, scale: this.currentScaleName, mood: this.currentMood } };
         this.shortTermMemory.add(contextualAction);
         var recentActions = this.shortTermMemory.getRecent(10);
-        var reward = evaluateReward(recentActions, this.currentState);
+        var reward = evaluateReward(recentActions, this.currentState, this.knowledge.rewardModel);
         var lr = getLearningRate(this.knowledge.sessionsPlayed);
         this._updatePreferences(action, reward, lr);
         this._learnCombos(reward, lr);
@@ -1242,7 +1255,7 @@
         if (this.currentState === 'breakdown') return;
 
         var recentActions = this.shortTermMemory.getRecent(10);
-        var reward = evaluateReward(recentActions, this.currentState);
+        var reward = evaluateReward(recentActions, this.currentState, this.knowledge.rewardModel);
 
         if (!this._grooveRewards) this._grooveRewards = [];
         this._grooveRewards.push({
@@ -1337,6 +1350,75 @@
         this._grooveRewards = [];
     };
 
+    // ========== REWARD MODEL CALIBRATION ==========
+    // At session end, adjust the reward model based on what happened.
+    // Good sessions → the density/metrics during that session were "right"
+    // Bad sessions → shift away from those metrics
+    // Over time, n0body develops its own taste instead of using my defaults.
+
+    N0body.prototype._calibrateRewardModel = function(sessionReward) {
+        if (!this._densityTracker) return;
+
+        var model = this.knowledge.rewardModel;
+        if (!model) return;
+
+        var lr = Math.max(0.05, 0.3 * Math.max(0.1, 1 - (model.calibrations || 0) / 50));
+        // Learning rate decays: first sessions calibrate fast, later ones refine
+
+        var states = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+        var self = this;
+
+        states.forEach(function(state) {
+            var tracker = self._densityTracker[state];
+            if (!tracker || tracker.samples.length < 3) return;
+
+            // Average density this session for this state
+            var avgDensity = tracker.samples.reduce(function(a, b) { return a + b; }, 0) / tracker.samples.length;
+
+            if (!model.optimalDensity[state]) {
+                model.optimalDensity[state] = { center: avgDensity, spread: 2.0 };
+            }
+
+            var opt = model.optimalDensity[state];
+
+            if (sessionReward > 0.5) {
+                // Good session → move optimal toward what happened
+                opt.center = opt.center + (avgDensity - opt.center) * lr;
+                // Tighten spread slightly (more confident)
+                opt.spread = Math.max(0.5, opt.spread * (1 - lr * 0.1));
+            } else if (sessionReward < -0.3) {
+                // Bad session → move away from what happened
+                opt.center = opt.center - (avgDensity - opt.center) * lr * 0.3;
+                // Widen spread (less confident, explore more)
+                opt.spread = Math.min(4.0, opt.spread * (1 + lr * 0.1));
+            }
+        });
+
+        // Calibrate weights based on session variety and rhythm
+        if (sessionReward > 0.5) {
+            // If high-variety sessions are good, increase variety weight
+            var statesVisited = 0;
+            states.forEach(function(s) {
+                if (self.stateTimeSpent && self.stateTimeSpent[s] > 10) statesVisited++;
+            });
+            if (statesVisited >= 3) {
+                model.weights.variety = Math.min(2.0, model.weights.variety + lr * 0.1);
+            }
+        }
+
+        model.calibrations = (model.calibrations || 0) + 1;
+
+        console.log('n0body: reward model calibrated (' + model.calibrations + ' sessions)');
+        console.log('  density centers: ' +
+            states.map(function(s) {
+                return s + '=' + (model.optimalDensity[s] ? model.optimalDensity[s].center.toFixed(1) : '?');
+            }).join(', '));
+        console.log('  weights: density=' + model.weights.density.toFixed(2) +
+            ' variety=' + model.weights.variety.toFixed(2) +
+            ' rhythm=' + model.weights.rhythm.toFixed(2) +
+            ' space=' + model.weights.space.toFixed(2));
+    };
+
     // ========== PHRASE LEARNING ==========
     // Same pattern as groove learning: save what worked, reject what didn't
 
@@ -1429,6 +1511,19 @@
         if (!this._energyHistory) this._energyHistory = [];
         this._energyHistory.push(this.sessionEnergy[state]);
         if (this._energyHistory.length > 50) this._energyHistory.shift();
+
+        // Track density per state for reward model calibration
+        if (!this._densityTracker) this._densityTracker = {};
+        if (!this._densityTracker[state]) this._densityTracker[state] = { samples: [], lastSampleTime: 0 };
+        var now = Date.now();
+        // Sample density every 2 seconds
+        if (now - this._densityTracker[state].lastSampleTime >= 2000) {
+            var recent = this.shortTermMemory.getRecent(30);
+            var actionsLast2s = recent.filter(function(a) { return now - a.timestamp < 2000; }).length;
+            this._densityTracker[state].samples.push(actionsLast2s);
+            this._densityTracker[state].lastSampleTime = now;
+            if (this._densityTracker[state].samples.length > 100) this._densityTracker[state].samples.shift();
+        }
     };
 
     N0body.prototype._learnEnergy = function(sessionReward) {
@@ -2013,7 +2108,7 @@
             // Score this phrase repetition for learning
             if (this._phraseContext) {
                 var recentActions = this.shortTermMemory.getRecent(10);
-                var reward = evaluateReward(recentActions, this.currentState);
+                var reward = evaluateReward(recentActions, this.currentState, this.knowledge.rewardModel);
                 if (!this._phraseRewardsSession) this._phraseRewardsSession = [];
                 this._phraseRewardsSession.push({
                     notes: this._currentPhrase,
