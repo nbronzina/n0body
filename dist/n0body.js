@@ -97,6 +97,8 @@
         if (old.bpm) fresh.bpm = old.bpm;
         if (old.grooveMemory) fresh.grooveMemory = old.grooveMemory;
         if (old.grooveRejected) fresh.grooveRejected = old.grooveRejected;
+        if (old.phraseMemory) fresh.phraseMemory = old.phraseMemory;
+        if (old.phraseRejected) fresh.phraseRejected = old.phraseRejected;
         // Migrate old BPM preferences format
         if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
@@ -217,30 +219,80 @@
 
             // Groove memory — learned patterns with context and reward
             // Key: "state_mood" (e.g. "peak_dark")
-            // Value: array of { pattern: {track: patternName}, reward, count, mutations }
+            // Value: array of { pattern: {track: patternName}, reward, count }
             grooveMemory: {},
 
             // Grooves that consistently failed — never use again
             grooveRejected: [],
+
+            // Phrase memory — learned synth phrases with context and reward
+            // Key: "state_mood_scale" (e.g. "peak_dark_cMinor")
+            // Value: array of { notes: [{note, duration}], reward, count }
+            phraseMemory: {},
+
+            // Phrases that consistently failed
+            phraseRejected: [],
         };
     }
 
-    function evaluateReward(recentActions) {
+    // State-aware reward evaluation — different states have different criteria
+    // for what "sounds right". Intro without synth is fine; breakdown without drums is fine.
+    function evaluateReward(recentActions, state) {
         if (recentActions.length < 3) return 0;
         var now = Date.now();
         var score = 0;
 
         var actionsLast2Sec = recentActions.filter(function(a) { return now - a.timestamp < 2000; }).length;
-        if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
-        else if (actionsLast2Sec > 7) score -= 1;
-        else if (actionsLast2Sec === 0) score -= 0.5;
-
         var types = {};
         recentActions.forEach(function(a) { types[a.type] = true; });
         var typeCount = Object.keys(types).length;
-        if (typeCount >= 2) score += 0.5;
-        if (typeCount >= 3) score += 0.3;
 
+        // Density expectations per state
+        switch (state) {
+            case 'intro':
+                // Intro: sparse is good. Drums only is fine. No synth expected.
+                if (actionsLast2Sec >= 1 && actionsLast2Sec <= 3) score += 1;
+                else if (actionsLast2Sec > 5) score -= 1;
+                if (actionsLast2Sec === 0) score += 0.3; // silence is OK in intro
+                if (types.drum) score += 0.5; // drums present = good
+                break;
+
+            case 'buildup':
+                // Buildup: moderate density, variety starting to appear
+                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
+                else if (actionsLast2Sec > 7) score -= 0.5;
+                if (typeCount >= 2) score += 0.5;
+                break;
+
+            case 'peak':
+                // Peak: density and variety both matter
+                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 6) score += 1;
+                else if (actionsLast2Sec > 8) score -= 1;
+                if (typeCount >= 2) score += 0.5;
+                if (typeCount >= 3) score += 0.3;
+                break;
+
+            case 'breakdown':
+                // Breakdown: synth alone is good. Low density is expected.
+                if (actionsLast2Sec >= 1 && actionsLast2Sec <= 3) score += 1;
+                if (actionsLast2Sec === 0) score += 0.2; // space is good
+                if (types.synth) score += 0.8; // synth as protagonist = good
+                // Don't penalize lack of drums — they're supposed to be gone
+                break;
+
+            case 'outro':
+                // Outro: very sparse, silence is golden
+                if (actionsLast2Sec <= 1) score += 1;
+                if (actionsLast2Sec === 0) score += 0.5;
+                if (actionsLast2Sec > 3) score -= 1;
+                break;
+
+            default:
+                if (actionsLast2Sec >= 2 && actionsLast2Sec <= 5) score += 1;
+                if (typeCount >= 2) score += 0.5;
+        }
+
+        // Rhythm consistency (applies to all states with enough actions)
         if (recentActions.length >= 4) {
             var intervals = [];
             for (var i = 1; i < recentActions.length; i++) {
@@ -663,8 +715,9 @@
             }
         });
 
-        // Learn grooves — which patterns worked in which context
+        // Learn grooves and phrases — which patterns worked in which context
         this._learnGrooves(sessionReward);
+        this._learnPhrases(sessionReward);
 
         // Learn mid-session changes
         this._learnBPMChanges(sessionReward);
@@ -826,7 +879,7 @@
         var contextualAction = { type: action.type, pad: action.pad, note: action.note, param: action.param, value: action.value, context: { state: this.currentState, bpm: this.currentBPM, scale: this.currentScaleName, mood: this.currentMood } };
         this.shortTermMemory.add(contextualAction);
         var recentActions = this.shortTermMemory.getRecent(10);
-        var reward = evaluateReward(recentActions);
+        var reward = evaluateReward(recentActions, this.currentState);
         var lr = getLearningRate(this.knowledge.sessionsPlayed);
         this._updatePreferences(action, reward, lr);
         this._learnCombos(reward, lr);
@@ -1162,12 +1215,15 @@
     // Like a sesionista reviewing their session: "that groove in peak worked, keep it"
 
     // Called during _tick to record what groove is playing and how it feels
+    // Only tracks when groove is active — not during mute or breakdown
     N0body.prototype._trackGrooveReward = function() {
         if (!this._currentGroove || !this._currentGrooveContext) return;
+        // Don't score groove during mute (silence) or breakdown (drums off)
+        if (this._isMuted) return;
+        if (this.currentState === 'breakdown') return;
 
-        // Accumulate reward while this groove is active
         var recentActions = this.shortTermMemory.getRecent(10);
-        var reward = evaluateReward(recentActions);
+        var reward = evaluateReward(recentActions, this.currentState);
 
         if (!this._grooveRewards) this._grooveRewards = [];
         this._grooveRewards.push({
@@ -1260,6 +1316,78 @@
             Object.keys(this.knowledge.grooveMemory).length + ' contexts');
 
         this._grooveRewards = [];
+    };
+
+    // ========== PHRASE LEARNING ==========
+    // Same pattern as groove learning: save what worked, reject what didn't
+
+    N0body.prototype._learnPhrases = function(sessionReward) {
+        if (!this._phraseRewardsSession || this._phraseRewardsSession.length === 0) return;
+
+        var grouped = {};
+        this._phraseRewardsSession.forEach(function(entry) {
+            var key = entry.context + '::' + entry.notes.map(function(n) { return n.note; }).join('-');
+            if (!grouped[key]) {
+                grouped[key] = { notes: entry.notes, context: entry.context, rewards: [] };
+            }
+            grouped[key].rewards.push(entry.reward);
+        });
+
+        for (var key in grouped) {
+            if (!grouped.hasOwnProperty(key)) continue;
+            var g = grouped[key];
+            var avgReward = g.rewards.reduce(function(a, b) { return a + b; }, 0) / g.rewards.length;
+            var combinedReward = avgReward * 0.6 + sessionReward * 0.4;
+
+            var contextKey = g.context;
+            if (!this.knowledge.phraseMemory[contextKey]) {
+                this.knowledge.phraseMemory[contextKey] = [];
+            }
+
+            var memory = this.knowledge.phraseMemory[contextKey];
+            var phraseKey = g.notes.map(function(n) { return n.note; }).join('-');
+
+            // Find existing
+            var existing = null;
+            for (var i = 0; i < memory.length; i++) {
+                var existingKey = memory[i].notes.map(function(n) { return n.note; }).join('-');
+                if (existingKey === phraseKey) {
+                    existing = memory[i];
+                    break;
+                }
+            }
+
+            if (existing) {
+                existing.reward = (existing.reward * existing.count + combinedReward) / (existing.count + 1);
+                existing.count++;
+            } else {
+                memory.push({ notes: g.notes, reward: combinedReward, count: 1 });
+            }
+
+            // Reject consistently bad phrases
+            if (existing && existing.count > 3 && existing.reward < -0.3) {
+                if (!this.knowledge.phraseRejected) this.knowledge.phraseRejected = [];
+                if (this.knowledge.phraseRejected.indexOf(phraseKey) === -1) {
+                    this.knowledge.phraseRejected.push(phraseKey);
+                    if (this.knowledge.phraseRejected.length > 50) this.knowledge.phraseRejected.shift();
+                }
+            }
+
+            // Keep top 15 phrases per context
+            if (memory.length > 15) {
+                memory.sort(function(a, b) { return b.reward - a.reward; });
+                memory.length = 15;
+            }
+        }
+
+        var totalPhrases = 0;
+        for (var ctx in this.knowledge.phraseMemory) {
+            totalPhrases += this.knowledge.phraseMemory[ctx].length;
+        }
+        console.log('n0body: phrase memory — ' + totalPhrases + ' phrases across ' +
+            Object.keys(this.knowledge.phraseMemory).length + ' contexts');
+
+        this._phraseRewardsSession = [];
     };
 
     // ========== ENERGY TRACKING ==========
@@ -1718,34 +1846,92 @@
     };
 
     // Generate a new 2-4 note phrase that repeats for 4-16 bars
+    // Generate or recall a phrase — same learning flow as grooves:
+    // newborn copies (random), learning develops favorites, experienced mutates
     N0body.prototype._generatePhrase = function() {
-        var noteCount = randomIntBetween(2, 4);
-        var notes = [];
-        var stateConf = this.stateConfig[this.currentState];
+        var state = this.currentState;
+        var mood = this.currentMood || 'neutral';
+        var scale = this.currentScaleName || 'cMinor';
+        var contextKey = state + '_' + mood + '_' + scale;
+        var stateConf = this.stateConfig[state];
+        var notes = null;
 
-        // Build the phrase using stepwise motion from current position
-        for (var i = 0; i < noteCount; i++) {
-            notes.push({
-                note: this._chooseSynthNote(),
-                duration: randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max),
-            });
+        // Check phrase memory — exploitation
+        var memory = this.knowledge.phraseMemory[contextKey];
+        var rejected = this.knowledge.phraseRejected || [];
+
+        if (memory && memory.length > 0 && Math.random() >= this.getExplorationRate()) {
+            // Weight by reward
+            var weights = {};
+            for (var i = 0; i < memory.length; i++) {
+                var pKey = memory[i].notes.map(function(n) { return n.note; }).join('-');
+                if (rejected.indexOf(pKey) === -1) {
+                    weights[i] = Math.max(0.1, memory[i].reward);
+                }
+            }
+
+            if (Object.keys(weights).length > 0) {
+                var chosen = parseInt(weightedChoice(weights));
+                var learned = memory[chosen];
+
+                // With experience, mutate favorite phrases
+                if (this.knowledge.sessionsPlayed > 15 && Math.random() < 0.3) {
+                    notes = this._mutatePhrase(learned.notes, stateConf);
+                    console.log('n0body: mutated phrase (' + contextKey + ')');
+                } else {
+                    notes = JSON.parse(JSON.stringify(learned.notes));
+                    console.log('n0body: recalled phrase (' + contextKey + ', reward: ' + learned.reward.toFixed(2) + ')');
+                }
+            }
+        }
+
+        // Exploration — generate a new phrase
+        if (!notes) {
+            var noteCount = randomIntBetween(2, 4);
+            notes = [];
+            for (var j = 0; j < noteCount; j++) {
+                notes.push({
+                    note: this._chooseSynthNote(),
+                    duration: randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max),
+                });
+            }
+
+            // Developing+: mutate the new phrase occasionally
+            if (this.knowledge.sessionsPlayed > 30 && Math.random() < 0.3) {
+                notes = this._mutatePhrase(notes, stateConf);
+            }
         }
 
         this._currentPhrase = notes;
         this._phraseIndex = 0;
         this._phraseRepeats = 0;
+        this._phraseContext = contextKey;
 
-        // How long to repeat: shorter phrases repeat more
-        // buildup: 4-8 bars, peak: 8-16 bars, breakdown: 4-8 bars
-        switch (this.currentState) {
+        switch (state) {
             case 'buildup':   this._phraseMaxRepeats = randomIntBetween(2, 4); break;
             case 'peak':      this._phraseMaxRepeats = randomIntBetween(4, 8); break;
             case 'breakdown': this._phraseMaxRepeats = randomIntBetween(2, 4); break;
             default:          this._phraseMaxRepeats = randomIntBetween(2, 4);
         }
 
-        console.log('n0body: new phrase — ' + notes.length + ' notes, ' + this._phraseMaxRepeats + ' repeats (' + this.currentState + ')');
-        this._trackPattern('phrase', { notes: notes.map(function(n) { return n.note; }), state: this.currentState });
+        // Track for learning
+        if (!this._phraseRewardsSession) this._phraseRewardsSession = [];
+        this._trackPattern('phrase', { notes: notes.map(function(n) { return n.note; }), state: state });
+    };
+
+    // Mutate a phrase — change 1 note's pitch or duration
+    N0body.prototype._mutatePhrase = function(original, stateConf) {
+        var notes = JSON.parse(JSON.stringify(original));
+        var idx = randomIntBetween(0, notes.length - 1);
+
+        if (Math.random() < 0.7) {
+            // Change pitch — stepwise from current note
+            notes[idx].note = this._chooseSynthNote();
+        } else {
+            // Change duration
+            notes[idx].duration = randomBetween(stateConf.synth.noteDuration.min, stateConf.synth.noteDuration.max);
+        }
+        return notes;
     };
 
     // Play the next note in the current phrase, then schedule the next
@@ -1778,6 +1964,18 @@
         if (this._phraseIndex >= phrase.length) {
             this._phraseIndex = 0;
             this._phraseRepeats++;
+
+            // Score this phrase repetition for learning
+            if (this._phraseContext) {
+                var recentActions = this.shortTermMemory.getRecent(10);
+                var reward = evaluateReward(recentActions, this.currentState);
+                if (!this._phraseRewardsSession) this._phraseRewardsSession = [];
+                this._phraseRewardsSession.push({
+                    notes: this._currentPhrase,
+                    context: this._phraseContext,
+                    reward: reward,
+                });
+            }
         }
 
         // Schedule next note on beat grid
