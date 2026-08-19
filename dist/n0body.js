@@ -390,7 +390,7 @@
                 probability: 0.005,
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0, 8: 0.01 }
             },
-            synth: { probability: 0.30, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 800, max: 2000 } },
+            synth: { probability: 0.20, noteDuration: { min: 1.5, max: 4 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0, max: 0.15 }, crush: { min: 0, max: 0 } },
         },
@@ -399,7 +399,7 @@
                 probability: 0.01,
                 padWeights: { 1: 0.15, 2: 0.08, 3: 0.12, 4: 0.04, 5: 0.03, 6: 0.05, 7: 0.02, 8: 0.04 }
             },
-            synth: { probability: 0.45, noteDuration: { min: 0.5, max: 2 }, noteSpacing: { min: 500, max: 1500 } },
+            synth: { probability: 0.30, noteDuration: { min: 0.5, max: 2 } },
             sequencer: { active: true, density: 0.15, tracksActive: [1, 2, 3, 8] },
             fx: { reverb: { min: 0.4, max: 0.6 }, delay: { min: 0.15, max: 0.35 }, filter: { min: 0.5, max: 0.7 }, distortion: { min: 0, max: 0.1 }, chorus: { min: 0.1, max: 0.25 }, crush: { min: 0, max: 0 } },
         },
@@ -408,7 +408,7 @@
                 probability: 0.015,
                 padWeights: { 1: 0.20, 2: 0.15, 3: 0.18, 4: 0.08, 5: 0.06, 6: 0.08, 7: 0.05, 8: 0.06 }
             },
-            synth: { probability: 0.55, noteDuration: { min: 0.2, max: 1.2 }, noteSpacing: { min: 300, max: 900 } },
+            synth: { probability: 0.40, noteDuration: { min: 0.2, max: 1.2 } },
             sequencer: { active: true, density: 0.35, tracksActive: [1, 2, 3, 4, 5, 6, 8] },
             fx: { reverb: { min: 0.5, max: 0.75 }, delay: { min: 0.25, max: 0.5 }, filter: { min: 0.6, max: 0.85 }, distortion: { min: 0.05, max: 0.2 }, chorus: { min: 0.15, max: 0.35 }, crush: { min: 0, max: 0.1 } },
         },
@@ -417,7 +417,7 @@
                 probability: 0.008,
                 padWeights: { 1: 0.08, 2: 0.04, 3: 0.06, 4: 0.03, 5: 0.02, 6: 0.04, 7: 0.01, 8: 0.03 }
             },
-            synth: { probability: 0.35, noteDuration: { min: 0.8, max: 2.5 }, noteSpacing: { min: 600, max: 1500 } },
+            synth: { probability: 0.25, noteDuration: { min: 0.8, max: 2.5 } },
             sequencer: { active: true, density: 0.1, tracksActive: [1, 2, 3, 6] },
             fx: { reverb: { min: 0.45, max: 0.6 }, delay: { min: 0.1, max: 0.25 }, filter: { min: 0.35, max: 0.55 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0.1, max: 0.2 }, crush: { min: 0, max: 0 } },
         },
@@ -426,7 +426,7 @@
                 probability: 0.003,
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0.01, 8: 0 }
             },
-            synth: { probability: 0.20, noteDuration: { min: 1.5, max: 4 }, noteSpacing: { min: 1200, max: 3000 } },
+            synth: { probability: 0.12, noteDuration: { min: 1.5, max: 4 } },
             sequencer: { active: false },
             fx: { reverb: { min: 0.6, max: 0.8 }, delay: { min: 0, max: 0.1 }, filter: { min: 0.2, max: 0.4 }, distortion: { min: 0, max: 0 }, chorus: { min: 0, max: 0.1 }, crush: { min: 0, max: 0 } },
         },
@@ -1679,19 +1679,22 @@
         }
 
         // Quantize synth timing to beat grid — notes land in relation to the groove
-        // instead of firing on an independent random timer
+        // Subdivisions per state: sparse states = wide spacing, dense states = tighter
         var beatMs = 60000 / (this.currentBPM || 120);
-        var subdivisions = [0.25, 0.5, 0.5, 1, 1, 1, 2, 2, 4]; // weighted toward half and full beats
+        var subdivisions;
+        switch (this.currentState) {
+            case 'intro':     subdivisions = [2, 4, 4, 8, 8];       break; // 2-8 beats apart
+            case 'buildup':   subdivisions = [1, 1, 2, 2, 4];       break; // 1-4 beats apart
+            case 'peak':      subdivisions = [0.5, 1, 1, 1, 2];     break; // half to 2 beats
+            case 'breakdown': subdivisions = [1, 2, 2, 4, 4];       break; // 1-4 beats apart
+            case 'outro':     subdivisions = [2, 4, 4, 8, 8, 16];   break; // 2-16 beats apart
+            default:          subdivisions = [1, 2, 2, 4];
+        }
         var subdiv = randomFrom(subdivisions);
         var gridSpacing = beatMs * subdiv;
 
         // Apply humanization: ±timing ms of drift around the grid point
         var humanized = gridSpacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
-
-        // In sparse states (intro/outro), allow skipping grid points
-        if (this.currentState === 'intro' || this.currentState === 'outro') {
-            humanized *= randomFrom([1, 2, 2, 3, 4]); // skip 1-4 grid points
-        }
 
         // Minimum 300ms between synth notes to prevent audio overload
         this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, Math.max(300, humanized));
