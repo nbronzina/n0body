@@ -1183,6 +1183,13 @@
 
         this.currentState = 'intro';
         this.stateStartTime = Date.now();
+
+        // Apply initial groove immediately — don't wait for tick loop
+        // The session should have rhythm from the first second
+        MK1.sequencer.start();
+        this._applyGroovePreset();
+        this._lastSeqTime = Date.now();
+        console.log('n0body: initial groove applied');
     };
 
     N0body.prototype._chooseScale = function() {
@@ -1962,11 +1969,20 @@
             console.log('n0body: breakdown — minimal kick anchor, synth takes over');
         }
 
-        // Gradual layer introduction when building up from sparse state
-        // Like Jamie xx / Massive Attack: each element enters alone
-        if ((newState === 'buildup' || newState === 'peak') &&
-            (this.previousState === 'intro' || this.previousState === 'breakdown')) {
-            this._gradualLayerIntro();
+        // Apply groove for the new state
+        if (newState !== 'breakdown') {
+            var stateConfNew = this.stateConfig[newState];
+            if (stateConfNew.sequencer.active) {
+                // Gradual layer introduction from sparse states
+                if ((newState === 'buildup' || newState === 'peak') &&
+                    (this.previousState === 'intro' || this.previousState === 'breakdown')) {
+                    this._gradualLayerIntro();
+                } else {
+                    // Immediate groove change for other transitions
+                    this._applyGroovePreset();
+                    this._lastSeqTime = Date.now();
+                }
+            }
         }
 
         this.previousState = this.currentState;
