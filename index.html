@@ -1040,6 +1040,8 @@
         if (this._bpmInterval) { clearInterval(this._bpmInterval); this._bpmInterval = null; }
         if (this._planTimeouts) { this._planTimeouts.forEach(function(id) { clearTimeout(id); }); this._planTimeouts = []; }
         if (this._phraseTimeouts) { this._phraseTimeouts.forEach(function(id) { clearTimeout(id); }); this._phraseTimeouts = []; }
+        if (this._filterSweepTimer) { clearInterval(this._filterSweepTimer); this._filterSweepTimer = null; }
+        if (this._layerTimers) { this._layerTimers.forEach(function(id) { clearTimeout(id); }); this._layerTimers = []; }
 
         // Reset MK1
         MK1.sequencer.stop();
@@ -1963,7 +1965,10 @@
         var stateConf = this.stateConfig[newState];
         if (stateConf.sequencer.active) { if (!MK1.sequencer.isPlaying()) MK1.sequencer.start(); }
         else { if (MK1.sequencer.isPlaying()) MK1.sequencer.stop(); }
-        this._applyAllFx();
+
+        // Filter sweep as transition (Chemical Brothers / Jamie xx technique)
+        // Instead of jumping FX values, sweep the filter over 8 bars
+        this._filterSweepTransition(newState);
 
         // Reset phrase on state change — new state, new musical idea
         this._currentPhrase = null;
@@ -1972,13 +1977,19 @@
         // In breakdown: stop sequencer — melody is the protagonist
         if (newState === 'breakdown') {
             if (MK1.sequencer.isPlaying()) MK1.sequencer.stop();
-            // Clear sequencer pattern — silence the drums
             for (var t = 1; t <= 8; t++) {
                 for (var s = 1; s <= 16; s++) {
                     MK1.sequencer.setStep(t, s, false);
                 }
             }
             console.log('n0body: breakdown — drums out, synth takes over');
+        }
+
+        // Gradual layer introduction when building up from sparse state
+        // Like Jamie xx / Massive Attack: each element enters alone
+        if ((newState === 'buildup' || newState === 'peak') &&
+            (this.previousState === 'intro' || this.previousState === 'breakdown')) {
+            this._gradualLayerIntro();
         }
 
         this.previousState = this.currentState;
@@ -2553,6 +2564,106 @@
             self._applyGroovePreset();
             console.log('n0body: groove restored');
         }, muteDuration);
+    };
+
+    // ========== PRODUCTION TECHNIQUES ==========
+
+    // Filter sweep as transition — LP filter closes then opens over 8 bars
+    // Like Chemical Brothers / Jamie xx: filter is the transition, not a cut
+    N0body.prototype._filterSweepTransition = function(newState) {
+        if (this._filterSweepTimer) clearInterval(this._filterSweepTimer);
+
+        var self = this;
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+        var sweepDuration = barMs * 8; // 8 bars total
+        var halfDuration = sweepDuration / 2;
+
+        var startFilter = this.currentFx.filter;
+        var targetFilter = this._chooseFxValue('filter');
+        var steps = 32; // smooth enough
+        var stepMs = sweepDuration / steps;
+        var currentStep = 0;
+
+        // Phase 1: close filter down (4 bars)
+        // Phase 2: open filter to new target (4 bars)
+        this._filterSweepTimer = setInterval(function() {
+            currentStep++;
+            var progress = currentStep / steps;
+            var filterValue;
+
+            if (progress <= 0.5) {
+                // Closing down: start → 0.1
+                var closeProgress = progress * 2;
+                filterValue = startFilter + (0.1 - startFilter) * closeProgress;
+            } else {
+                // Opening up: 0.1 → target
+                var openProgress = (progress - 0.5) * 2;
+                filterValue = 0.1 + (targetFilter - 0.1) * openProgress;
+            }
+
+            self.currentFx.filter = filterValue;
+            MK1.fx.setFilter(filterValue);
+
+            if (currentStep >= steps) {
+                clearInterval(self._filterSweepTimer);
+                self._filterSweepTimer = null;
+                // Now apply the rest of the FX for the new state
+                self._applyAllFx();
+            }
+        }, stepMs);
+    };
+
+    // Gradual layer introduction — each element enters 4-8 bars apart
+    // Like Jamie xx / Massive Attack: never add two elements at once
+    N0body.prototype._gradualLayerIntro = function() {
+        if (!this.isPlaying) return;
+        var self = this;
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+
+        // Clear any existing layer timers
+        if (this._layerTimers) {
+            this._layerTimers.forEach(function(t) { clearTimeout(t); });
+        }
+        this._layerTimers = [];
+
+        // Get current groove — apply tracks one at a time
+        var stateConf = this.stateConfig[this.currentState];
+        if (!stateConf.sequencer.active) return;
+
+        var presets = GROOVE_PRESETS[this.currentState];
+        if (!presets || presets.length === 0) return;
+        var groove = JSON.parse(JSON.stringify(randomFrom(presets)));
+        var tracks = Object.keys(groove);
+
+        // First: clear everything
+        for (var t = 1; t <= 8; t++) {
+            for (var s = 1; s <= 16; s++) {
+                MK1.sequencer.setStep(t, s, false);
+            }
+        }
+
+        // Then: introduce each track 4-8 bars apart
+        tracks.forEach(function(track, index) {
+            var delay = barMs * randomIntBetween(4, 8) * index;
+            var tid = setTimeout(function() {
+                if (!self.isPlaying) return;
+                var patternName = groove[track];
+                var pattern = DRUM_PATTERNS[patternName];
+                if (!pattern) return;
+                var trackNum = parseInt(track);
+                for (var step = 0; step < 16; step++) {
+                    MK1.sequencer.setStep(trackNum, step + 1, pattern[step] === 1);
+                }
+                console.log('n0body: layer in — track ' + trackNum + ' (' + patternName + ')');
+            }, delay);
+            self._layerTimers.push(tid);
+        });
+
+        this._currentGroove = groove;
+        this._currentGrooveContext = this.currentState + '_' + (this.currentMood || 'neutral');
+        this._currentGrooveStartTime = Date.now();
     };
 
     // ========== FX (all 6) ==========
