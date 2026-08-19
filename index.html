@@ -988,12 +988,22 @@
         if (this.isPlaying) return;
         if (typeof MK1 === 'undefined') { console.error('n0body: MK1 not found'); return; }
 
-        // Resume AudioContext FIRST — this must happen in a user gesture context
-        // Without this, the sequencer runs silently (context is suspended)
+        // Initialize mk-1 audio system and resume AudioContext
+        // mk-1's AudioContext may not exist yet — calling synth.play() triggers
+        // initSystem() which creates it. Then resume() unlocks it.
+        // This sequence MUST happen inside a real user gesture (the ▸ click).
+        try {
+            // Force mk-1 to initialize its audio system by playing a silent note
+            MK1.synth.play('C3', 0.01);
+            MK1.synth.stop();
+        } catch(e) {}
+        // Now the AudioContext exists — resume it
         if (MK1.utils && MK1.utils.resume) {
             MK1.utils.resume();
-            console.log('n0body: AudioContext resumed');
         }
+        // Hit a drum to doubly ensure audio is flowing
+        MK1.drums.hit(1);
+        console.log('n0body: audio system initialized and resumed');
 
         console.log('');
         console.log('n0body v3.2 is going live...');
@@ -2175,10 +2185,12 @@
         var health = MK1.utils.getHealth();
         var elapsed = Math.round((Date.now() - this.sessionStart) / 1000 / 60);
 
-        console.log('n0body: health check @' + elapsed + 'min - voices: ' + health.activeDrumVoices + 'd/' + health.activeSynthVoices + 's, ctx: ' + health.contextState);
+        // mk-1 getHealth returns: { audioContext: 'running'|'suspended', activeSynthVoices, activeDrumVoices, micActive }
+        var ctxState = health.audioContext || 'unknown';
+        console.log('n0body: health check @' + elapsed + 'min - voices: ' + health.activeDrumVoices + 'd/' + health.activeSynthVoices + 's, ctx: ' + ctxState);
 
-        if (!health.healthy) {
-            console.warn('n0body: audio unhealthy! attempting recovery...');
+        if (ctxState === 'suspended' || ctxState === 'not initialized') {
+            console.warn('n0body: audio context ' + ctxState + '! attempting recovery...');
             this._attemptAudioRecovery();
         }
     };
@@ -2198,7 +2210,7 @@
             if (!MK1.utils.getHealth) return;
             var health = MK1.utils.getHealth();
 
-            if (!health.healthy && MK1.utils.forceCleanup) {
+            if (health.audioContext !== 'running' && MK1.utils.forceCleanup) {
                 console.warn('n0body: still unhealthy, forcing cleanup...');
                 MK1.utils.forceCleanup();
             }
