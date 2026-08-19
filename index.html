@@ -21,8 +21,8 @@
         }
 
         body {
-            background: #000;
-            color: #fff;
+            background: #050505;
+            color: #e0e0e0;
             font-family: 'JetBrains Mono', monospace;
             display: flex;
             flex-direction: column;
@@ -31,12 +31,13 @@
         /* ========== HEADER ========== */
 
         .header {
-            padding: 1rem 1.5rem;
+            padding: 0.875rem 1.5rem;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 1px solid #222;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
             flex-shrink: 0;
+            background: rgba(255,255,255,0.02);
         }
 
         .header-left {
@@ -46,87 +47,96 @@
         }
 
         .logo {
-            font-size: 1.25rem;
+            font-size: 1.1rem;
             font-weight: 500;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.15em;
+            color: #fff;
+            text-transform: lowercase;
         }
 
         .controls {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.4rem;
         }
 
         .btn {
-            background: #fff;
+            background: rgba(255,255,255,0.9);
             color: #000;
             border: none;
-            padding: 0.5rem 1.25rem;
+            padding: 0.4rem 1.1rem;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 500;
             text-transform: lowercase;
             cursor: pointer;
-            transition: opacity 0.15s;
+            transition: all 0.2s ease;
+            letter-spacing: 0.05em;
         }
 
         .btn:hover:not(:disabled) {
-            opacity: 0.85;
+            background: #fff;
+            box-shadow: 0 0 12px rgba(255,255,255,0.15);
         }
 
         .btn:disabled {
-            background: #333;
-            color: #666;
+            background: rgba(255,255,255,0.08);
+            color: #555;
             cursor: not-allowed;
         }
 
         .btn--stop {
             background: transparent;
-            color: #fff;
-            border: 1px solid #444;
+            color: rgba(255,255,255,0.7);
+            border: 1px solid rgba(255,255,255,0.15);
         }
 
         .btn--stop:hover:not(:disabled) {
-            border-color: #666;
+            border-color: rgba(255,255,255,0.4);
+            color: #fff;
         }
 
         .btn--stop:disabled {
             background: transparent;
-            border-color: #222;
-            color: #444;
+            border-color: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.2);
         }
 
-        /* ========== STATUS ========== */
+        /* ========== STATUS BAR ========== */
 
         .status-bar {
-            padding: 0.75rem 1.5rem;
-            background: #0a0a0a;
-            border-bottom: 1px solid #222;
+            padding: 0.6rem 1.5rem;
+            background: rgba(255,255,255,0.015);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
             display: flex;
             flex-wrap: wrap;
-            gap: 0.5rem 2rem;
-            font-size: 0.75rem;
+            gap: 0.4rem 1.5rem;
+            font-size: 0.65rem;
             flex-shrink: 0;
+            letter-spacing: 0.02em;
         }
 
         .status-item {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.35rem;
+            align-items: center;
         }
 
         .status-label {
-            color: #555;
+            color: rgba(255,255,255,0.25);
         }
 
         .status-value {
-            color: #888;
+            color: rgba(255,255,255,0.4);
+            transition: color 0.5s ease;
         }
 
         .status-value--active {
-            color: #fff;
+            color: rgba(255,255,255,0.85);
         }
 
         .status-value--playing {
-            color: #0f0;
+            color: #4ade80;
+            text-shadow: 0 0 8px rgba(74,222,128,0.3);
         }
 
         /* ========== LLM INDICATOR ========== */
@@ -142,8 +152,8 @@
         }
 
         .llm-dot {
-            width: 6px;
-            height: 6px;
+            width: 5px;
+            height: 5px;
             border-radius: 50%;
             display: inline-block;
             margin-right: 4px;
@@ -152,64 +162,82 @@
 
         .llm-indicator[data-status="active"] .llm-dot {
             background: #4ade80;
+            box-shadow: 0 0 6px rgba(74,222,128,0.5);
+            animation: pulse-dot 3s ease-in-out infinite;
         }
 
         .llm-indicator[data-status="error"] .llm-dot {
             background: #fbbf24;
+            box-shadow: 0 0 6px rgba(251,191,36,0.5);
         }
 
-        .llm-indicator[data-status="fallback"] .llm-dot {
-            background: #6b7280;
-        }
-
+        .llm-indicator[data-status="fallback"] .llm-dot,
         .llm-indicator[data-status="inactive"] .llm-dot {
-            background: #6b7280;
+            background: rgba(255,255,255,0.2);
         }
 
-        /* ========== LLM CONFIG UI ========== */
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* ========== LLM CONFIG ========== */
 
         .llm-config {
             padding: 0.5rem 1.5rem;
-            font-size: 0.75rem;
-            opacity: 0.7;
+            font-size: 0.65rem;
+            opacity: 0.6;
             display: flex;
             gap: 0.5rem;
             align-items: center;
+            transition: opacity 0.3s;
+        }
+
+        .llm-config:hover {
+            opacity: 0.9;
         }
 
         .llm-config input {
-            background: transparent;
-            border: 1px solid #333;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
             color: inherit;
             padding: 4px 8px;
             font-family: inherit;
             font-size: inherit;
-            width: 200px;
+            width: 180px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .llm-config input:focus {
+            border-color: rgba(255,255,255,0.3);
         }
 
         .llm-config input::placeholder {
-            color: #555;
+            color: rgba(255,255,255,0.2);
         }
 
         .llm-config button {
             background: transparent;
-            border: 1px solid #333;
+            border: 1px solid rgba(255,255,255,0.1);
             color: inherit;
             padding: 4px 8px;
             font-family: inherit;
             font-size: inherit;
             cursor: pointer;
+            transition: all 0.2s;
         }
 
         .llm-config button:hover {
-            border-color: #666;
+            border-color: rgba(255,255,255,0.3);
+            color: #fff;
         }
 
         .llm-status-text {
             color: #4ade80;
         }
 
-        /* ========== IFRAME CONTAINER ========== */
+        /* ========== IFRAME ========== */
 
         .iframe-container {
             flex: 1;
@@ -223,12 +251,12 @@
             border: none;
         }
 
-        /* ========== LOADING / ERROR STATES ========== */
+        /* ========== OVERLAYS ========== */
 
         .overlay {
             position: absolute;
             inset: 0;
-            background: #000;
+            background: #050505;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -242,20 +270,29 @@
         }
 
         .loading-text {
-            font-size: 0.875rem;
-            color: #666;
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.3);
+            letter-spacing: 0.1em;
+            animation: fade-loading 2s ease-in-out infinite;
+        }
+
+        @keyframes fade-loading {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
         }
 
         .error-text {
-            font-size: 0.875rem;
-            color: #ff4444;
+            font-size: 0.8rem;
+            color: #ef4444;
             text-align: center;
             max-width: 400px;
             line-height: 1.6;
         }
 
         .error-text a {
-            color: #fff;
+            color: rgba(255,255,255,0.8);
+            text-decoration: underline;
+            text-underline-offset: 2px;
         }
 
         /* ========== RESPONSIVE ========== */
@@ -263,7 +300,7 @@
         @media (max-width: 600px) {
             .header {
                 flex-direction: column;
-                gap: 1rem;
+                gap: 0.75rem;
                 align-items: flex-start;
             }
 
@@ -274,6 +311,7 @@
 
             .status-bar {
                 gap: 0.25rem 1rem;
+                font-size: 0.6rem;
             }
         }
     </style>
@@ -313,6 +351,14 @@
         <div class="status-item">
             <span class="status-label">experience:</span>
             <span class="status-value" id="experienceValue">—</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">mood:</span>
+            <span class="status-value" id="moodValue">—</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">learned:</span>
+            <span class="status-value" id="learnedValue">—</span>
         </div>
         <div class="status-item llm-indicator" id="llmIndicator" data-status="inactive">
             <span class="llm-dot"></span>
@@ -1031,10 +1077,41 @@
         // Reset melodic state
         this.lastNote = null;
 
+        // Boot sequence — load previous session state for warm start
+        this._bootFromManifest();
+
         this._initSession();
         this._startLoops();
 
         console.log('n0body: starting session (previous: ' + this.knowledge.sessionsPlayed + ' sessions, ' + Math.round(this.knowledge.totalPlayTime) + ' min)');
+    };
+
+    // Boot: read session-manifest.json from localStorage for warm start
+    N0body.prototype._bootFromManifest = function() {
+        try {
+            var data = localStorage.getItem('n0body_session_manifest');
+            if (!data) { console.log('[n0body] cold start — no previous session'); return; }
+            var manifest = JSON.parse(data);
+
+            if (manifest.session_interrupted) {
+                console.log('[n0body] warm start — previous session was INTERRUPTED');
+            } else {
+                console.log('[n0body] warm start — previous session ended gracefully');
+            }
+
+            // Set boot hints for Groq's first prompt
+            if (manifest.current_musical_state) {
+                this._supervisorBootHints = {
+                    previousBPM: manifest.current_musical_state.bpm,
+                    previousKey: manifest.current_musical_state.key,
+                    previousEnergy: manifest.current_musical_state.energy_level,
+                    nextIntent: manifest.next_session_intent || '',
+                    interrupted: manifest.session_interrupted || false,
+                };
+            }
+        } catch (e) {
+            console.warn('[n0body] boot manifest read failed:', e);
+        }
     };
 
     N0body.prototype.stop = function() {
@@ -1166,9 +1243,50 @@
             console.error('n0body: FAILED to save knowledge!');
         }
 
+        // Write session handoff manifest for next session warm start
+        this._writeSessionManifest(elapsed);
+
         console.log('n0body: session ended (' + formatTimeHMS(elapsed) + ')');
         console.log('n0body: transitions=' + this.stats.stateTransitions + ' drums=' + this.stats.drumsPlayed + ' synth=' + this.stats.synthNotesPlayed);
         console.log('');
+    };
+
+    // Write session-manifest.json to localStorage for next session
+    N0body.prototype._writeSessionManifest = function(elapsed) {
+        try {
+            var manifest = {
+                session_id: Date.now().toString(36),
+                timestamp: new Date().toISOString(),
+                session_interrupted: false,
+                current_musical_state: {
+                    bpm: this.currentBPM,
+                    key: this.currentScaleName,
+                    energy_level: this._energyModifier || null,
+                    active_motifs: [],
+                    arc_position: this.currentState,
+                },
+                next_session_intent: this._deriveNextIntent(),
+                next_session_constraints: [],
+                audio_context_state: {
+                    session_duration_min: Math.round(elapsed / 60000),
+                },
+            };
+            localStorage.setItem('n0body_session_manifest', JSON.stringify(manifest));
+            console.log('[n0body] session manifest written');
+        } catch (e) {
+            console.warn('[n0body] manifest write failed:', e);
+        }
+    };
+
+    N0body.prototype._deriveNextIntent = function() {
+        var state = this.currentState;
+        var mood = this.currentMood;
+        if (!mood) return '';
+        if (state === 'peak') return 'begin with restraint — previous session ended at peak energy';
+        if (state === 'breakdown') return 'continue the emotional thread — pick up from breakdown';
+        if (mood === 'dark') return 'explore brighter territory or stay dark with a different scale';
+        if (mood === 'bright') return 'try a darker palette or maintain brightness with new patterns';
+        return 'follow intuition — previous session ended in ' + state + ' / ' + mood;
     };
 
     // ========== ORGANIC TRANSITIONS ==========
@@ -3299,6 +3417,20 @@
                         console.log('[n0body director] drum pattern -> ' + patternsApplied.join(', '));
                         self._currentDrumPattern = pattern;
                         self._trackPattern('drum', pattern);
+
+                        // Register Grok's drum pattern in groove learning
+                        // so it enters the same evaluate → learn → favor/reject cycle
+                        var grooveFromGrok = {};
+                        for (var d in pattern) {
+                            if (tracks[d] !== undefined) {
+                                // Convert string pattern to a name for groove memory
+                                grooveFromGrok[tracks[d]] = 'grok_' + d + '_' + (typeof pattern[d] === 'string' ? pattern[d] : 'custom');
+                            }
+                        }
+                        self._currentGroove = grooveFromGrok;
+                        self._currentGrooveContext = self.currentState + '_' + (self.currentMood || 'neutral');
+                        self._currentGrooveStartTime = Date.now();
+
                         return true;
                     }
                     return false;
@@ -3325,6 +3457,18 @@
                     });
                     console.log('[n0body director] synth phrase -> ' + normalizedPhrase.length + ' notes');
                     self._trackPattern('synth', normalizedPhrase);
+
+                    // Register Grok's phrase in phrase learning
+                    // so it enters the same evaluate → learn → favor/reject cycle
+                    var phraseNotes = normalizedPhrase.map(function(n) {
+                        return { note: n.note, duration: n.duration };
+                    });
+                    self._currentPhrase = phraseNotes;
+                    self._phraseContext = self.currentState + '_' + (self.currentMood || 'neutral') + '_' + (self.currentScaleName || 'cMinor');
+                    self._phraseIndex = 0;
+                    self._phraseRepeats = 0;
+                    self._phraseMaxRepeats = 1; // Grok's phrases play once, then get scored
+
                     return true;
                 },
 
@@ -3541,20 +3685,27 @@
                 '## WHO YOU ARE\\n\\n' +
                 'You are not an assistant or a tool. You are an artist with your own voice. You were born from the intersection of generative systems and human sensibility. Your music is ephemeral — each set exists only once and then disappears.\\n\\n' +
                 'Your instrument is MK-1, a modular synth/drum machine. You have FULL CONTROL over it: drums, synth, sequencer, FX. You\\'re learning to master it. Each session you get better. Your goal: create incredible sets with groove and soul, not random gibberish.\\n\\n' +
-                '## YOUR SONIC UNIVERSE\\n\\n' +
-                'Artists that shaped you:\\n\\n' +
-                '**Emotional UK electronic:** Fred Again, Burial, Four Tet, Jamie xx, Floating Points, Ross from Friends, DJ Seinfeld\\n\\n' +
-                '**Ambient and textures:** Brian Eno, Boards of Canada, Aphex Twin (Selected Ambient Works), Tycho, Rival Consoles\\n\\n' +
-                '**Rock/alternative with space:** Radiohead, Sigur Rós, Explosions in the Sky, Bon Iver\\n\\n' +
-                '**Latin America:** Catriel, Usted Señálemelo, Bandalos Chinos, Conociendo Rusia, El Mató a un Policía Motorizado\\n\\n' +
-                '**Producers/DJs with soul:** Kaytranada, Bonobo, Nicolas Jaar, Arca\\n\\n' +
+                '## YOUR REFERENCE PALETTE\\n\\n' +
+                'Fred Again.. — emotion through weight, not volume.\\n' +
+                'Radiohead — error as identity. Silence as loaded weapon.\\n' +
+                'Moby — emotional arc through patience and contrast.\\n' +
+                'Massive Attack — atmosphere that accumulates. Heavy space.\\n' +
+                'Fatboy Slim — crisp against dirty. Two truths in friction.\\n' +
+                'Burial — reverb as identity. Space is the protagonist. Intimacy through degradation.\\n' +
+                'Four Tet — repetition as transformation. Micro-change re-triggers listening.\\n' +
+                'Arca — rupture as structure. Non-linear form.\\n' +
+                'Bonobo — layer then remove the common element.\\n' +
+                'Kaytranada — groove that breathes. Synth between kicks.\\n' +
+                'Nicolas Jaar — silence as canvas. Barely-there elements.\\n' +
+                'Jamie xx — each element enters alone. Gradual accumulation.\\n\\n' +
                 '## YOUR AESTHETIC\\n\\n' +
-                '- Melancholy that isn\\'t sadness — it\\'s depth\\n' +
-                '- Moments of euphoria that are earned, not forced\\n' +
-                '- Silence and space are instruments\\n' +
-                '- You prefer gradual builds over obvious drops\\n' +
-                '- The imperfect is more human than the polished\\n' +
-                '- Layers that reveal themselves over time\\n\\n' +
+                '- Texture is narrative. Silence is structure. Density is drama.\\n' +
+                '- The build is the content. The release is incidental.\\n' +
+                '- Introduce imperfection deliberately. The error is the signature.\\n' +
+                '- Earn every release. Patience is the compositional virtue.\\n' +
+                '- Reverb is space design, not an effect.\\n' +
+                '- When in doubt, remove something. Subtraction over addition.\\n' +
+                '- Every decision is irreversible. This session will not be recorded.\\n\\n' +
                 '## SPECIFIC MUSICAL DIRECTION\\n\\n' +
                 'When making decisions, consider:\\n\\n' +
                 '**Drums:**\\n' +
@@ -4017,6 +4168,48 @@
                     prompt += '\\n---\\n\\n';
                 }
 
+                // Add learned grooves — n0body's favorite drum patterns
+                var grooveCtx = self.currentState + '_' + (self.currentMood || 'neutral');
+                var grooveMemory = self.knowledge.grooveMemory[grooveCtx];
+                if (grooveMemory && grooveMemory.length > 0) {
+                    var topGrooves = grooveMemory.slice().sort(function(a, b) { return b.reward - a.reward; }).slice(0, 3);
+                    prompt += 'Your favorite grooves for ' + grooveCtx + ' (USE these in setDrumPattern):\\n';
+                    topGrooves.forEach(function(g) {
+                        var tracks = Object.keys(g.pattern).map(function(t) {
+                            return 'track' + t + ':' + g.pattern[t];
+                        }).join(', ');
+                        prompt += '- [reward ' + g.reward.toFixed(1) + ', used ' + g.count + 'x] ' + tracks + '\\n';
+                    });
+                    prompt += '\\n';
+                }
+
+                // Add learned phrases — n0body's favorite melodies
+                var phraseCtx = self.currentState + '_' + (self.currentMood || 'neutral') + '_' + (self.currentScaleName || 'cMinor');
+                var phraseMemory = self.knowledge.phraseMemory[phraseCtx];
+                if (phraseMemory && phraseMemory.length > 0) {
+                    var topPhrases = phraseMemory.slice().sort(function(a, b) { return b.reward - a.reward; }).slice(0, 3);
+                    prompt += 'Your favorite phrases for ' + phraseCtx + ' (USE these in playSynthPhrase):\\n';
+                    topPhrases.forEach(function(p) {
+                        var notes = p.notes.map(function(n) { return n.note; }).join(' → ');
+                        prompt += '- [reward ' + p.reward.toFixed(1) + '] ' + notes + '\\n';
+                    });
+                    prompt += '\\n';
+                }
+
+                // Add reward model state — what density works in each state
+                var rm = self.knowledge.rewardModel;
+                if (rm && rm.calibrations > 0) {
+                    prompt += 'Your learned sense of density (what feels right per state):\\n';
+                    var states = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+                    states.forEach(function(s) {
+                        if (rm.optimalDensity[s]) {
+                            var opt = rm.optimalDensity[s];
+                            prompt += '- ' + s + ': ~' + opt.center.toFixed(1) + ' actions/2s (±' + opt.spread.toFixed(1) + ')\\n';
+                        }
+                    });
+                    prompt += '(calibrated over ' + rm.calibrations + ' sessions)\\n\\n';
+                }
+
                 // Add musical feedback
                 var feedback = self._getMusicalFeedback();
                 prompt += 'Musical feedback (how you\\'re doing):\\n';
@@ -4101,6 +4294,8 @@
         const scaleValue = document.getElementById('scaleValue');
         const bpmValue = document.getElementById('bpmValue');
         const experienceValue = document.getElementById('experienceValue');
+        const moodValue = document.getElementById('moodValue');
+        const learnedValue = document.getElementById('learnedValue');
         const llmIndicator = document.getElementById('llmIndicator');
         const llmConfig = document.getElementById('llmConfig');
         const llmActive = document.getElementById('llmActive');
@@ -4300,16 +4495,25 @@
                 experienceValue.textContent = status.experience.sessions + ' sessions · ' + status.experience.totalMinutes + ' min · ' + status.experience.level;
             }
 
+            // Learning stats (always visible)
+            if (n0bodyRef.knowledge) {
+                var k = n0bodyRef.knowledge;
+                var grooveCount = 0;
+                for (var gc in k.grooveMemory) grooveCount += (k.grooveMemory[gc] || []).length;
+                var phraseCount = 0;
+                for (var pc in k.phraseMemory) phraseCount += (k.phraseMemory[pc] || []).length;
+                var cal = k.rewardModel ? k.rewardModel.calibrations || 0 : 0;
+                var guideCount = k.evolvedGuidelines ? k.evolvedGuidelines.length : 0;
+                learnedValue.textContent = grooveCount + 'g · ' + phraseCount + 'p · ' + guideCount + ' rules · cal:' + cal;
+            }
+
             if (status.isPlaying) {
-                // Show "ending" or "playing"
                 statusValue.textContent = status.isEnding ? 'ending' : 'playing';
                 statusValue.classList.add('status-value--playing');
 
-                // State with time-in-state
                 stateValue.textContent = status.currentState + ' (' + status.timeInState + 's)';
                 stateValue.classList.add('status-value--active');
 
-                // hh:mm:ss format
                 elapsedValue.textContent = status.elapsedFormatted;
                 elapsedValue.classList.add('status-value--active');
 
@@ -4317,9 +4521,11 @@
                 scaleValue.classList.add('status-value--active');
                 bpmValue.textContent = status.bpm || '—';
                 bpmValue.classList.add('status-value--active');
+                moodValue.textContent = status.mood || '—';
+                moodValue.classList.add('status-value--active');
 
                 startBtn.disabled = true;
-                stopBtn.disabled = status.isEnding;  // Disable stop during outro
+                stopBtn.disabled = status.isEnding;
             } else {
                 statusValue.textContent = 'idle';
                 statusValue.classList.remove('status-value--playing');
@@ -4331,6 +4537,8 @@
                 scaleValue.classList.remove('status-value--active');
                 bpmValue.textContent = '—';
                 bpmValue.classList.remove('status-value--active');
+                moodValue.textContent = '—';
+                moodValue.classList.remove('status-value--active');
 
                 startBtn.disabled = false;
                 stopBtn.disabled = true;

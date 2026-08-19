@@ -53,8 +53,10 @@ class SessionSupervisor {
         this.n0body = n0body;
         this.state = STATES.IDLE;
 
-        // Configuration
-        this.hardLimitMs = (options.hardLimitMinutes || 45) * 60 * 1000;
+        // Configuration — no hard time limit by default.
+        // Sessions run as long as they're healthy. Termination is by
+        // degradation signals (entropy, repetition, render capacity).
+        this.hardLimitMs = options.hardLimitMinutes ? options.hardLimitMinutes * 60 * 1000 : null;
         this.monitorIntervalMs = options.monitorIntervalMs || 500;
         this.outroDurationMs = (options.outroDurationSeconds || 120) * 1000;
 
@@ -267,8 +269,9 @@ class SessionSupervisor {
 
     // ========== TERMINATION TRIGGERS ==========
 
-    // 1. Hard time limit
+    // 1. Hard time limit (optional — null means no limit)
     _checkTimeLimit() {
+        if (!this.hardLimitMs) return;
         if (this.getSessionElapsedMs() >= this.hardLimitMs) {
             this._triggerOutro('hard time limit (' + (this.hardLimitMs / 60000) + 'min)');
         }

@@ -669,10 +669,41 @@
         // Reset melodic state
         this.lastNote = null;
 
+        // Boot sequence — load previous session state for warm start
+        this._bootFromManifest();
+
         this._initSession();
         this._startLoops();
 
         console.log('n0body: starting session (previous: ' + this.knowledge.sessionsPlayed + ' sessions, ' + Math.round(this.knowledge.totalPlayTime) + ' min)');
+    };
+
+    // Boot: read session-manifest.json from localStorage for warm start
+    N0body.prototype._bootFromManifest = function() {
+        try {
+            var data = localStorage.getItem('n0body_session_manifest');
+            if (!data) { console.log('[n0body] cold start — no previous session'); return; }
+            var manifest = JSON.parse(data);
+
+            if (manifest.session_interrupted) {
+                console.log('[n0body] warm start — previous session was INTERRUPTED');
+            } else {
+                console.log('[n0body] warm start — previous session ended gracefully');
+            }
+
+            // Set boot hints for Groq's first prompt
+            if (manifest.current_musical_state) {
+                this._supervisorBootHints = {
+                    previousBPM: manifest.current_musical_state.bpm,
+                    previousKey: manifest.current_musical_state.key,
+                    previousEnergy: manifest.current_musical_state.energy_level,
+                    nextIntent: manifest.next_session_intent || '',
+                    interrupted: manifest.session_interrupted || false,
+                };
+            }
+        } catch (e) {
+            console.warn('[n0body] boot manifest read failed:', e);
+        }
     };
 
     N0body.prototype.stop = function() {
@@ -804,9 +835,50 @@
             console.error('n0body: FAILED to save knowledge!');
         }
 
+        // Write session handoff manifest for next session warm start
+        this._writeSessionManifest(elapsed);
+
         console.log('n0body: session ended (' + formatTimeHMS(elapsed) + ')');
         console.log('n0body: transitions=' + this.stats.stateTransitions + ' drums=' + this.stats.drumsPlayed + ' synth=' + this.stats.synthNotesPlayed);
         console.log('');
+    };
+
+    // Write session-manifest.json to localStorage for next session
+    N0body.prototype._writeSessionManifest = function(elapsed) {
+        try {
+            var manifest = {
+                session_id: Date.now().toString(36),
+                timestamp: new Date().toISOString(),
+                session_interrupted: false,
+                current_musical_state: {
+                    bpm: this.currentBPM,
+                    key: this.currentScaleName,
+                    energy_level: this._energyModifier || null,
+                    active_motifs: [],
+                    arc_position: this.currentState,
+                },
+                next_session_intent: this._deriveNextIntent(),
+                next_session_constraints: [],
+                audio_context_state: {
+                    session_duration_min: Math.round(elapsed / 60000),
+                },
+            };
+            localStorage.setItem('n0body_session_manifest', JSON.stringify(manifest));
+            console.log('[n0body] session manifest written');
+        } catch (e) {
+            console.warn('[n0body] manifest write failed:', e);
+        }
+    };
+
+    N0body.prototype._deriveNextIntent = function() {
+        var state = this.currentState;
+        var mood = this.currentMood;
+        if (!mood) return '';
+        if (state === 'peak') return 'begin with restraint — previous session ended at peak energy';
+        if (state === 'breakdown') return 'continue the emotional thread — pick up from breakdown';
+        if (mood === 'dark') return 'explore brighter territory or stay dark with a different scale';
+        if (mood === 'bright') return 'try a darker palette or maintain brightness with new patterns';
+        return 'follow intuition — previous session ended in ' + state + ' / ' + mood;
     };
 
     // ========== ORGANIC TRANSITIONS ==========
@@ -2937,6 +3009,20 @@
                         console.log('[n0body director] drum pattern -> ' + patternsApplied.join(', '));
                         self._currentDrumPattern = pattern;
                         self._trackPattern('drum', pattern);
+
+                        // Register Grok's drum pattern in groove learning
+                        // so it enters the same evaluate → learn → favor/reject cycle
+                        var grooveFromGrok = {};
+                        for (var d in pattern) {
+                            if (tracks[d] !== undefined) {
+                                // Convert string pattern to a name for groove memory
+                                grooveFromGrok[tracks[d]] = 'grok_' + d + '_' + (typeof pattern[d] === 'string' ? pattern[d] : 'custom');
+                            }
+                        }
+                        self._currentGroove = grooveFromGrok;
+                        self._currentGrooveContext = self.currentState + '_' + (self.currentMood || 'neutral');
+                        self._currentGrooveStartTime = Date.now();
+
                         return true;
                     }
                     return false;
@@ -2963,6 +3049,18 @@
                     });
                     console.log('[n0body director] synth phrase -> ' + normalizedPhrase.length + ' notes');
                     self._trackPattern('synth', normalizedPhrase);
+
+                    // Register Grok's phrase in phrase learning
+                    // so it enters the same evaluate → learn → favor/reject cycle
+                    var phraseNotes = normalizedPhrase.map(function(n) {
+                        return { note: n.note, duration: n.duration };
+                    });
+                    self._currentPhrase = phraseNotes;
+                    self._phraseContext = self.currentState + '_' + (self.currentMood || 'neutral') + '_' + (self.currentScaleName || 'cMinor');
+                    self._phraseIndex = 0;
+                    self._phraseRepeats = 0;
+                    self._phraseMaxRepeats = 1; // Grok's phrases play once, then get scored
+
                     return true;
                 },
 
@@ -3179,20 +3277,27 @@
                 '## WHO YOU ARE\n\n' +
                 'You are not an assistant or a tool. You are an artist with your own voice. You were born from the intersection of generative systems and human sensibility. Your music is ephemeral — each set exists only once and then disappears.\n\n' +
                 'Your instrument is MK-1, a modular synth/drum machine. You have FULL CONTROL over it: drums, synth, sequencer, FX. You\'re learning to master it. Each session you get better. Your goal: create incredible sets with groove and soul, not random gibberish.\n\n' +
-                '## YOUR SONIC UNIVERSE\n\n' +
-                'Artists that shaped you:\n\n' +
-                '**Emotional UK electronic:** Fred Again, Burial, Four Tet, Jamie xx, Floating Points, Ross from Friends, DJ Seinfeld\n\n' +
-                '**Ambient and textures:** Brian Eno, Boards of Canada, Aphex Twin (Selected Ambient Works), Tycho, Rival Consoles\n\n' +
-                '**Rock/alternative with space:** Radiohead, Sigur Rós, Explosions in the Sky, Bon Iver\n\n' +
-                '**Latin America:** Catriel, Usted Señálemelo, Bandalos Chinos, Conociendo Rusia, El Mató a un Policía Motorizado\n\n' +
-                '**Producers/DJs with soul:** Kaytranada, Bonobo, Nicolas Jaar, Arca\n\n' +
+                '## YOUR REFERENCE PALETTE\n\n' +
+                'Fred Again.. — emotion through weight, not volume.\n' +
+                'Radiohead — error as identity. Silence as loaded weapon.\n' +
+                'Moby — emotional arc through patience and contrast.\n' +
+                'Massive Attack — atmosphere that accumulates. Heavy space.\n' +
+                'Fatboy Slim — crisp against dirty. Two truths in friction.\n' +
+                'Burial — reverb as identity. Space is the protagonist. Intimacy through degradation.\n' +
+                'Four Tet — repetition as transformation. Micro-change re-triggers listening.\n' +
+                'Arca — rupture as structure. Non-linear form.\n' +
+                'Bonobo — layer then remove the common element.\n' +
+                'Kaytranada — groove that breathes. Synth between kicks.\n' +
+                'Nicolas Jaar — silence as canvas. Barely-there elements.\n' +
+                'Jamie xx — each element enters alone. Gradual accumulation.\n\n' +
                 '## YOUR AESTHETIC\n\n' +
-                '- Melancholy that isn\'t sadness — it\'s depth\n' +
-                '- Moments of euphoria that are earned, not forced\n' +
-                '- Silence and space are instruments\n' +
-                '- You prefer gradual builds over obvious drops\n' +
-                '- The imperfect is more human than the polished\n' +
-                '- Layers that reveal themselves over time\n\n' +
+                '- Texture is narrative. Silence is structure. Density is drama.\n' +
+                '- The build is the content. The release is incidental.\n' +
+                '- Introduce imperfection deliberately. The error is the signature.\n' +
+                '- Earn every release. Patience is the compositional virtue.\n' +
+                '- Reverb is space design, not an effect.\n' +
+                '- When in doubt, remove something. Subtraction over addition.\n' +
+                '- Every decision is irreversible. This session will not be recorded.\n\n' +
                 '## SPECIFIC MUSICAL DIRECTION\n\n' +
                 'When making decisions, consider:\n\n' +
                 '**Drums:**\n' +
@@ -3653,6 +3758,48 @@
                         prompt += '- ' + p.name + ' (' + p.mood + '/' + p.state + ', rating: ' + (p.rating || 0) + ', used: ' + (p.timesUsed || 0) + 'x)\n';
                     });
                     prompt += '\n---\n\n';
+                }
+
+                // Add learned grooves — n0body's favorite drum patterns
+                var grooveCtx = self.currentState + '_' + (self.currentMood || 'neutral');
+                var grooveMemory = self.knowledge.grooveMemory[grooveCtx];
+                if (grooveMemory && grooveMemory.length > 0) {
+                    var topGrooves = grooveMemory.slice().sort(function(a, b) { return b.reward - a.reward; }).slice(0, 3);
+                    prompt += 'Your favorite grooves for ' + grooveCtx + ' (USE these in setDrumPattern):\n';
+                    topGrooves.forEach(function(g) {
+                        var tracks = Object.keys(g.pattern).map(function(t) {
+                            return 'track' + t + ':' + g.pattern[t];
+                        }).join(', ');
+                        prompt += '- [reward ' + g.reward.toFixed(1) + ', used ' + g.count + 'x] ' + tracks + '\n';
+                    });
+                    prompt += '\n';
+                }
+
+                // Add learned phrases — n0body's favorite melodies
+                var phraseCtx = self.currentState + '_' + (self.currentMood || 'neutral') + '_' + (self.currentScaleName || 'cMinor');
+                var phraseMemory = self.knowledge.phraseMemory[phraseCtx];
+                if (phraseMemory && phraseMemory.length > 0) {
+                    var topPhrases = phraseMemory.slice().sort(function(a, b) { return b.reward - a.reward; }).slice(0, 3);
+                    prompt += 'Your favorite phrases for ' + phraseCtx + ' (USE these in playSynthPhrase):\n';
+                    topPhrases.forEach(function(p) {
+                        var notes = p.notes.map(function(n) { return n.note; }).join(' → ');
+                        prompt += '- [reward ' + p.reward.toFixed(1) + '] ' + notes + '\n';
+                    });
+                    prompt += '\n';
+                }
+
+                // Add reward model state — what density works in each state
+                var rm = self.knowledge.rewardModel;
+                if (rm && rm.calibrations > 0) {
+                    prompt += 'Your learned sense of density (what feels right per state):\n';
+                    var states = ['intro', 'buildup', 'peak', 'breakdown', 'outro'];
+                    states.forEach(function(s) {
+                        if (rm.optimalDensity[s]) {
+                            var opt = rm.optimalDensity[s];
+                            prompt += '- ' + s + ': ~' + opt.center.toFixed(1) + ' actions/2s (±' + opt.spread.toFixed(1) + ')\n';
+                        }
+                    });
+                    prompt += '(calibrated over ' + rm.calibrations + ' sessions)\n\n';
                 }
 
                 // Add musical feedback
