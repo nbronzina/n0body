@@ -314,6 +314,14 @@
             <span class="status-label">experience:</span>
             <span class="status-value" id="experienceValue">—</span>
         </div>
+        <div class="status-item">
+            <span class="status-label">mood:</span>
+            <span class="status-value" id="moodValue">—</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">learned:</span>
+            <span class="status-value" id="learnedValue">—</span>
+        </div>
         <div class="status-item llm-indicator" id="llmIndicator" data-status="inactive">
             <span class="llm-dot"></span>
             <span class="status-value">brain</span>
@@ -1031,10 +1039,41 @@
         // Reset melodic state
         this.lastNote = null;
 
+        // Boot sequence — load previous session state for warm start
+        this._bootFromManifest();
+
         this._initSession();
         this._startLoops();
 
         console.log('n0body: starting session (previous: ' + this.knowledge.sessionsPlayed + ' sessions, ' + Math.round(this.knowledge.totalPlayTime) + ' min)');
+    };
+
+    // Boot: read session-manifest.json from localStorage for warm start
+    N0body.prototype._bootFromManifest = function() {
+        try {
+            var data = localStorage.getItem('n0body_session_manifest');
+            if (!data) { console.log('[n0body] cold start — no previous session'); return; }
+            var manifest = JSON.parse(data);
+
+            if (manifest.session_interrupted) {
+                console.log('[n0body] warm start — previous session was INTERRUPTED');
+            } else {
+                console.log('[n0body] warm start — previous session ended gracefully');
+            }
+
+            // Set boot hints for Groq's first prompt
+            if (manifest.current_musical_state) {
+                this._supervisorBootHints = {
+                    previousBPM: manifest.current_musical_state.bpm,
+                    previousKey: manifest.current_musical_state.key,
+                    previousEnergy: manifest.current_musical_state.energy_level,
+                    nextIntent: manifest.next_session_intent || '',
+                    interrupted: manifest.session_interrupted || false,
+                };
+            }
+        } catch (e) {
+            console.warn('[n0body] boot manifest read failed:', e);
+        }
     };
 
     N0body.prototype.stop = function() {
@@ -1166,9 +1205,50 @@
             console.error('n0body: FAILED to save knowledge!');
         }
 
+        // Write session handoff manifest for next session warm start
+        this._writeSessionManifest(elapsed);
+
         console.log('n0body: session ended (' + formatTimeHMS(elapsed) + ')');
         console.log('n0body: transitions=' + this.stats.stateTransitions + ' drums=' + this.stats.drumsPlayed + ' synth=' + this.stats.synthNotesPlayed);
         console.log('');
+    };
+
+    // Write session-manifest.json to localStorage for next session
+    N0body.prototype._writeSessionManifest = function(elapsed) {
+        try {
+            var manifest = {
+                session_id: Date.now().toString(36),
+                timestamp: new Date().toISOString(),
+                session_interrupted: false,
+                current_musical_state: {
+                    bpm: this.currentBPM,
+                    key: this.currentScaleName,
+                    energy_level: this._energyModifier || null,
+                    active_motifs: [],
+                    arc_position: this.currentState,
+                },
+                next_session_intent: this._deriveNextIntent(),
+                next_session_constraints: [],
+                audio_context_state: {
+                    session_duration_min: Math.round(elapsed / 60000),
+                },
+            };
+            localStorage.setItem('n0body_session_manifest', JSON.stringify(manifest));
+            console.log('[n0body] session manifest written');
+        } catch (e) {
+            console.warn('[n0body] manifest write failed:', e);
+        }
+    };
+
+    N0body.prototype._deriveNextIntent = function() {
+        var state = this.currentState;
+        var mood = this.currentMood;
+        if (!mood) return '';
+        if (state === 'peak') return 'begin with restraint — previous session ended at peak energy';
+        if (state === 'breakdown') return 'continue the emotional thread — pick up from breakdown';
+        if (mood === 'dark') return 'explore brighter territory or stay dark with a different scale';
+        if (mood === 'bright') return 'try a darker palette or maintain brightness with new patterns';
+        return 'follow intuition — previous session ended in ' + state + ' / ' + mood;
     };
 
     // ========== ORGANIC TRANSITIONS ==========
@@ -3567,20 +3647,27 @@
                 '## WHO YOU ARE\\n\\n' +
                 'You are not an assistant or a tool. You are an artist with your own voice. You were born from the intersection of generative systems and human sensibility. Your music is ephemeral — each set exists only once and then disappears.\\n\\n' +
                 'Your instrument is MK-1, a modular synth/drum machine. You have FULL CONTROL over it: drums, synth, sequencer, FX. You\\'re learning to master it. Each session you get better. Your goal: create incredible sets with groove and soul, not random gibberish.\\n\\n' +
-                '## YOUR SONIC UNIVERSE\\n\\n' +
-                'Artists that shaped you:\\n\\n' +
-                '**Emotional UK electronic:** Fred Again, Burial, Four Tet, Jamie xx, Floating Points, Ross from Friends, DJ Seinfeld\\n\\n' +
-                '**Ambient and textures:** Brian Eno, Boards of Canada, Aphex Twin (Selected Ambient Works), Tycho, Rival Consoles\\n\\n' +
-                '**Rock/alternative with space:** Radiohead, Sigur Rós, Explosions in the Sky, Bon Iver\\n\\n' +
-                '**Latin America:** Catriel, Usted Señálemelo, Bandalos Chinos, Conociendo Rusia, El Mató a un Policía Motorizado\\n\\n' +
-                '**Producers/DJs with soul:** Kaytranada, Bonobo, Nicolas Jaar, Arca\\n\\n' +
+                '## YOUR REFERENCE PALETTE\\n\\n' +
+                'Fred Again.. — emotion through weight, not volume.\\n' +
+                'Radiohead — error as identity. Silence as loaded weapon.\\n' +
+                'Moby — emotional arc through patience and contrast.\\n' +
+                'Massive Attack — atmosphere that accumulates. Heavy space.\\n' +
+                'Fatboy Slim — crisp against dirty. Two truths in friction.\\n' +
+                'Burial — reverb as identity. Space is the protagonist. Intimacy through degradation.\\n' +
+                'Four Tet — repetition as transformation. Micro-change re-triggers listening.\\n' +
+                'Arca — rupture as structure. Non-linear form.\\n' +
+                'Bonobo — layer then remove the common element.\\n' +
+                'Kaytranada — groove that breathes. Synth between kicks.\\n' +
+                'Nicolas Jaar — silence as canvas. Barely-there elements.\\n' +
+                'Jamie xx — each element enters alone. Gradual accumulation.\\n\\n' +
                 '## YOUR AESTHETIC\\n\\n' +
-                '- Melancholy that isn\\'t sadness — it\\'s depth\\n' +
-                '- Moments of euphoria that are earned, not forced\\n' +
-                '- Silence and space are instruments\\n' +
-                '- You prefer gradual builds over obvious drops\\n' +
-                '- The imperfect is more human than the polished\\n' +
-                '- Layers that reveal themselves over time\\n\\n' +
+                '- Texture is narrative. Silence is structure. Density is drama.\\n' +
+                '- The build is the content. The release is incidental.\\n' +
+                '- Introduce imperfection deliberately. The error is the signature.\\n' +
+                '- Earn every release. Patience is the compositional virtue.\\n' +
+                '- Reverb is space design, not an effect.\\n' +
+                '- When in doubt, remove something. Subtraction over addition.\\n' +
+                '- Every decision is irreversible. This session will not be recorded.\\n\\n' +
                 '## SPECIFIC MUSICAL DIRECTION\\n\\n' +
                 'When making decisions, consider:\\n\\n' +
                 '**Drums:**\\n' +
@@ -4169,6 +4256,8 @@
         const scaleValue = document.getElementById('scaleValue');
         const bpmValue = document.getElementById('bpmValue');
         const experienceValue = document.getElementById('experienceValue');
+        const moodValue = document.getElementById('moodValue');
+        const learnedValue = document.getElementById('learnedValue');
         const llmIndicator = document.getElementById('llmIndicator');
         const llmConfig = document.getElementById('llmConfig');
         const llmActive = document.getElementById('llmActive');
@@ -4368,16 +4457,25 @@
                 experienceValue.textContent = status.experience.sessions + ' sessions · ' + status.experience.totalMinutes + ' min · ' + status.experience.level;
             }
 
+            // Learning stats (always visible)
+            if (n0bodyRef.knowledge) {
+                var k = n0bodyRef.knowledge;
+                var grooveCount = 0;
+                for (var gc in k.grooveMemory) grooveCount += (k.grooveMemory[gc] || []).length;
+                var phraseCount = 0;
+                for (var pc in k.phraseMemory) phraseCount += (k.phraseMemory[pc] || []).length;
+                var cal = k.rewardModel ? k.rewardModel.calibrations || 0 : 0;
+                var guideCount = k.evolvedGuidelines ? k.evolvedGuidelines.length : 0;
+                learnedValue.textContent = grooveCount + 'g · ' + phraseCount + 'p · ' + guideCount + ' rules · cal:' + cal;
+            }
+
             if (status.isPlaying) {
-                // Show "ending" or "playing"
                 statusValue.textContent = status.isEnding ? 'ending' : 'playing';
                 statusValue.classList.add('status-value--playing');
 
-                // State with time-in-state
                 stateValue.textContent = status.currentState + ' (' + status.timeInState + 's)';
                 stateValue.classList.add('status-value--active');
 
-                // hh:mm:ss format
                 elapsedValue.textContent = status.elapsedFormatted;
                 elapsedValue.classList.add('status-value--active');
 
@@ -4385,9 +4483,11 @@
                 scaleValue.classList.add('status-value--active');
                 bpmValue.textContent = status.bpm || '—';
                 bpmValue.classList.add('status-value--active');
+                moodValue.textContent = status.mood || '—';
+                moodValue.classList.add('status-value--active');
 
                 startBtn.disabled = true;
-                stopBtn.disabled = status.isEnding;  // Disable stop during outro
+                stopBtn.disabled = status.isEnding;
             } else {
                 statusValue.textContent = 'idle';
                 statusValue.classList.remove('status-value--playing');
@@ -4399,6 +4499,8 @@
                 scaleValue.classList.remove('status-value--active');
                 bpmValue.textContent = '—';
                 bpmValue.classList.remove('status-value--active');
+                moodValue.textContent = '—';
+                moodValue.classList.remove('status-value--active');
 
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
