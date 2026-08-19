@@ -464,6 +464,7 @@
         if (old.rewardModel) fresh.rewardModel = old.rewardModel;
         if (old.bestDecisions) fresh.bestDecisions = old.bestDecisions;
         if (old.reflections) fresh.reflections = old.reflections;
+        if (old.evolvedGuidelines) fresh.evolvedGuidelines = old.evolvedGuidelines;
         // Migrate old BPM preferences format
         if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
@@ -611,6 +612,10 @@
             bestDecisions: [],
             // Reflections: Grok's self-assessment at end of each session
             reflections: [],
+            // Evolved guidelines (SCOPE-inspired): rules synthesized from
+            // execution traces. The prompt evolves — these are n0body's
+            // self-discovered principles, not hardcoded rules.
+            evolvedGuidelines: [],
 
             // Groove memory — learned patterns with context and reward
             // Key: "state_mood" (e.g. "peak_dark")
@@ -1832,8 +1837,8 @@
         });
     };
 
-    // End-of-session reflection — ask Grok what it learned
-    // The reflection is saved and included in the next session's prompt
+    // End-of-session reflection + guideline synthesis (SCOPE-inspired)
+    // Two outputs: (1) reflection for self-awareness, (2) evolved guidelines for prompt
     N0body.prototype._requestReflection = function(sessionReward) {
         if (!this.llm || !this.llm.enabled || !this.llm.apiKey) return;
 
@@ -1841,19 +1846,33 @@
         var sessionMemory = this.llm.sessionMemory || [];
         if (sessionMemory.length < 2) return;
 
-        // Build a summary of this session's decisions and outcomes
-        var summary = sessionMemory.map(function(mem) {
+        // Build execution trace summary
+        var traces = sessionMemory.map(function(mem) {
             var reward = mem.outcomeReward;
             var label = reward >= 1.5 ? '★★' : reward >= 0.5 ? '★' : reward <= -0.3 ? '✗' : '—';
-            return mem.state + ' ' + label + ': "' + (mem.decision.monologue || '').substring(0, 60) + '"';
+            return mem.state + ' ' + label + ': "' + (mem.decision.monologue || '').substring(0, 80) + '"';
         }).join('\\n');
 
-        var reflectionPrompt = 'Session just ended (overall score: ' + sessionReward.toFixed(1) + ').\\n\\n' +
-            'Your decisions and their outcomes:\\n' + summary + '\\n\\n' +
-            'In 2 sentences: what worked and what didn\\'t? What should you do differently next time?\\n' +
-            'Respond with ONLY the 2 sentences, no JSON.';
+        // Include existing guidelines so the LLM can update/consolidate them
+        var existingGuidelines = (self.knowledge.evolvedGuidelines || []).join('\\n- ');
 
-        // Fire-and-forget async reflection call
+        var prompt = 'Session ended (score: ' + sessionReward.toFixed(1) + ').\\n\\n' +
+            'Execution trace:\\n' + traces + '\\n\\n';
+
+        if (existingGuidelines) {
+            prompt += 'Your current guidelines (from previous sessions):\\n- ' + existingGuidelines + '\\n\\n';
+        }
+
+        prompt += 'Respond in this EXACT format (no markdown, no backticks):\\n' +
+            'REFLECTION: [2 sentences — what worked, what didn\\'t]\\n' +
+            'GUIDELINES:\\n' +
+            '- [rule 1: a specific, actionable principle you learned]\\n' +
+            '- [rule 2: another principle]\\n' +
+            '- [rule 3: optional, only if clearly justified]\\n\\n' +
+            'Guidelines should be specific (e.g. "in dark/peak, hold groove for 16+ bars before changing") not vague ("be creative").\\n' +
+            'If an existing guideline was wrong based on this session, replace it.\\n' +
+            'Maximum 7 guidelines total — consolidate or remove outdated ones.';
+
         fetch(this.llm.endpoint, {
             method: 'POST',
             headers: {
@@ -1862,34 +1881,48 @@
             },
             body: JSON.stringify({
                 model: this.llm.model,
-                max_tokens: 100,
+                max_tokens: 250,
                 temperature: 0.7,
                 messages: [
-                    { role: 'system', content: 'You are n0body, an autonomous musical artist. Reflect briefly on your session.' },
-                    { role: 'user', content: reflectionPrompt }
+                    { role: 'system', content: 'You are n0body, an autonomous musical artist. Synthesize what you learned.' },
+                    { role: 'user', content: prompt }
                 ]
             })
         }).then(function(response) {
             return response.json();
         }).then(function(data) {
-            if (data.choices && data.choices[0] && data.choices[0].message) {
-                var reflection = data.choices[0].message.content.trim();
+            if (!data.choices || !data.choices[0] || !data.choices[0].message) return;
+            var text = data.choices[0].message.content.trim();
 
-                if (!self.knowledge.reflections) self.knowledge.reflections = [];
-                self.knowledge.reflections.push({
-                    sessionReward: sessionReward,
-                    reflection: reflection,
-                    timestamp: new Date().toISOString(),
-                });
-                // Keep last 5 reflections
-                if (self.knowledge.reflections.length > 5) {
-                    self.knowledge.reflections.shift();
+            // Parse reflection
+            var reflectionMatch = text.match(/REFLECTION:\\s*(.+?)(?=\\nGUIDELINES:|$)/s);
+            var reflection = reflectionMatch ? reflectionMatch[1].trim() : text.substring(0, 200);
+
+            if (!self.knowledge.reflections) self.knowledge.reflections = [];
+            self.knowledge.reflections.push({
+                sessionReward: sessionReward,
+                reflection: reflection,
+                timestamp: new Date().toISOString(),
+            });
+            if (self.knowledge.reflections.length > 5) self.knowledge.reflections.shift();
+
+            // Parse guidelines
+            var guidelinesMatch = text.match(/GUIDELINES:\\s*\\n([\\s\\S]+)/);
+            if (guidelinesMatch) {
+                var lines = guidelinesMatch[1].split('\\n')
+                    .map(function(l) { return l.replace(/^[\\s-]+/, '').trim(); })
+                    .filter(function(l) { return l.length > 10 && l.length < 200; });
+
+                if (lines.length > 0) {
+                    // Replace guidelines entirely — the LLM consolidates
+                    self.knowledge.evolvedGuidelines = lines.slice(0, 7);
+                    console.log('[n0body] evolved guidelines (' + lines.length + '):');
+                    lines.forEach(function(g) { console.log('  - ' + g); });
                 }
-
-                // Save immediately since session is ending
-                saveKnowledge(self.knowledge);
-                console.log('[n0body] reflection: ' + reflection);
             }
+
+            saveKnowledge(self.knowledge);
+            console.log('[n0body] reflection: ' + reflection);
         }).catch(function(e) {
             console.warn('[n0body] reflection failed:', e.message || e);
         });
@@ -3960,6 +3993,16 @@
                     prompt += 'Your reflections from recent sessions:\\n';
                     reflections.slice(-3).forEach(function(r) {
                         prompt += '- (score ' + r.sessionReward.toFixed(1) + '): ' + r.reflection + '\\n';
+                    });
+                    prompt += '\\n';
+                }
+
+                // Add evolved guidelines (SCOPE-inspired: self-discovered principles)
+                var guidelines = self.knowledge.evolvedGuidelines;
+                if (guidelines && guidelines.length > 0) {
+                    prompt += 'YOUR EVOLVED GUIDELINES (principles you discovered — follow these):\\n';
+                    guidelines.forEach(function(g) {
+                        prompt += '- ' + g + '\\n';
                     });
                     prompt += '\\n';
                 }
