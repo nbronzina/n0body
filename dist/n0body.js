@@ -100,6 +100,9 @@
         if (old.phraseMemory) fresh.phraseMemory = old.phraseMemory;
         if (old.phraseRejected) fresh.phraseRejected = old.phraseRejected;
         if (old.rewardModel) fresh.rewardModel = old.rewardModel;
+        if (old.bestDecisions) fresh.bestDecisions = old.bestDecisions;
+        if (old.reflections) fresh.reflections = old.reflections;
+        if (old.evolvedGuidelines) fresh.evolvedGuidelines = old.evolvedGuidelines;
         // Migrate old BPM preferences format
         if (old.bpmPreference && !old.bpm) {
             for (var mood in old.bpmPreference) {
@@ -241,6 +244,16 @@
                 // Calibration count — how many sessions have shaped this model
                 calibrations: 0,
             },
+
+            // LLM self-improvement — best decisions and reflections
+            // Few-shot: decisions with ★★ (reward ≥ 1.5) saved as examples
+            bestDecisions: [],
+            // Reflections: Grok's self-assessment at end of each session
+            reflections: [],
+            // Evolved guidelines (SCOPE-inspired): rules synthesized from
+            // execution traces. The prompt evolves — these are n0body's
+            // self-discovered principles, not hardcoded rules.
+            evolvedGuidelines: [],
 
             // Groove memory — learned patterns with context and reward
             // Key: "state_mood" (e.g. "peak_dark")
@@ -750,6 +763,12 @@
 
         // Calibrate reward model — n0body learns what "good" means
         this._calibrateRewardModel(sessionReward);
+
+        // Collect best LLM decisions as few-shot examples for future prompts
+        this._collectBestDecisions();
+
+        // Request end-of-session reflection from Grok
+        this._requestReflection(sessionReward);
 
         // Learn mid-session changes
         this._learnBPMChanges(sessionReward);
@@ -1417,6 +1436,134 @@
             ' variety=' + model.weights.variety.toFixed(2) +
             ' rhythm=' + model.weights.rhythm.toFixed(2) +
             ' space=' + model.weights.space.toFixed(2));
+    };
+
+    // ========== LLM SELF-IMPROVEMENT ==========
+
+    // Collect decisions with ★★ (reward ≥ 1.5) as few-shot examples
+    // These get injected into future prompts so Grok sees what worked
+    N0body.prototype._collectBestDecisions = function() {
+        if (!this.llm || !this.llm.sessionMemory) return;
+
+        var self = this;
+        this.llm.sessionMemory.forEach(function(mem) {
+            if (mem.outcomeReward >= 1.5 && mem.decision && mem.decision.monologue) {
+                var example = {
+                    state: mem.state,
+                    mood: mem.mood,
+                    monologue: mem.decision.monologue.substring(0, 120),
+                    reward: mem.outcomeReward,
+                };
+
+                if (!self.knowledge.bestDecisions) self.knowledge.bestDecisions = [];
+
+                // Avoid duplicates (same state+mood with similar monologue)
+                var dominated = self.knowledge.bestDecisions.some(function(d) {
+                    return d.state === example.state && d.mood === example.mood &&
+                           d.reward >= example.reward;
+                });
+
+                if (!dominated) {
+                    self.knowledge.bestDecisions.push(example);
+                    // Keep top 10 best decisions overall
+                    if (self.knowledge.bestDecisions.length > 10) {
+                        self.knowledge.bestDecisions.sort(function(a, b) { return b.reward - a.reward; });
+                        self.knowledge.bestDecisions.length = 10;
+                    }
+                }
+            }
+        });
+    };
+
+    // End-of-session reflection + guideline synthesis (SCOPE-inspired)
+    // Two outputs: (1) reflection for self-awareness, (2) evolved guidelines for prompt
+    N0body.prototype._requestReflection = function(sessionReward) {
+        if (!this.llm || !this.llm.enabled || !this.llm.apiKey) return;
+
+        var self = this;
+        var sessionMemory = this.llm.sessionMemory || [];
+        if (sessionMemory.length < 2) return;
+
+        // Build execution trace summary
+        var traces = sessionMemory.map(function(mem) {
+            var reward = mem.outcomeReward;
+            var label = reward >= 1.5 ? '★★' : reward >= 0.5 ? '★' : reward <= -0.3 ? '✗' : '—';
+            return mem.state + ' ' + label + ': "' + (mem.decision.monologue || '').substring(0, 80) + '"';
+        }).join('\n');
+
+        // Include existing guidelines so the LLM can update/consolidate them
+        var existingGuidelines = (self.knowledge.evolvedGuidelines || []).join('\n- ');
+
+        var prompt = 'Session ended (score: ' + sessionReward.toFixed(1) + ').\n\n' +
+            'Execution trace:\n' + traces + '\n\n';
+
+        if (existingGuidelines) {
+            prompt += 'Your current guidelines (from previous sessions):\n- ' + existingGuidelines + '\n\n';
+        }
+
+        prompt += 'Respond in this EXACT format (no markdown, no backticks):\n' +
+            'REFLECTION: [2 sentences — what worked, what didn\'t]\n' +
+            'GUIDELINES:\n' +
+            '- [rule 1: a specific, actionable principle you learned]\n' +
+            '- [rule 2: another principle]\n' +
+            '- [rule 3: optional, only if clearly justified]\n\n' +
+            'Guidelines should be specific (e.g. "in dark/peak, hold groove for 16+ bars before changing") not vague ("be creative").\n' +
+            'If an existing guideline was wrong based on this session, replace it.\n' +
+            'Maximum 7 guidelines total — consolidate or remove outdated ones.';
+
+        fetch(this.llm.endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + this.llm.apiKey
+            },
+            body: JSON.stringify({
+                model: this.llm.model,
+                max_tokens: 250,
+                temperature: 0.7,
+                messages: [
+                    { role: 'system', content: 'You are n0body, an autonomous musical artist. Synthesize what you learned.' },
+                    { role: 'user', content: prompt }
+                ]
+            })
+        }).then(function(response) {
+            return response.json();
+        }).then(function(data) {
+            if (!data.choices || !data.choices[0] || !data.choices[0].message) return;
+            var text = data.choices[0].message.content.trim();
+
+            // Parse reflection
+            var reflectionMatch = text.match(/REFLECTION:\s*(.+?)(?=\nGUIDELINES:|$)/s);
+            var reflection = reflectionMatch ? reflectionMatch[1].trim() : text.substring(0, 200);
+
+            if (!self.knowledge.reflections) self.knowledge.reflections = [];
+            self.knowledge.reflections.push({
+                sessionReward: sessionReward,
+                reflection: reflection,
+                timestamp: new Date().toISOString(),
+            });
+            if (self.knowledge.reflections.length > 5) self.knowledge.reflections.shift();
+
+            // Parse guidelines
+            var guidelinesMatch = text.match(/GUIDELINES:\s*\n([\s\S]+)/);
+            if (guidelinesMatch) {
+                var lines = guidelinesMatch[1].split('\n')
+                    .map(function(l) { return l.replace(/^[\s-]+/, '').trim(); })
+                    .filter(function(l) { return l.length > 10 && l.length < 200; });
+
+                if (lines.length > 0) {
+                    // Replace guidelines entirely — the LLM consolidates
+                    self.knowledge.evolvedGuidelines = lines.slice(0, 7);
+                    console.log('[n0body] evolved guidelines (' + lines.length + '):');
+                    lines.forEach(function(g) { console.log('  - ' + g); });
+                }
+            }
+
+            saveKnowledge(self.knowledge);
+            console.log('[n0body] reflection: ' + reflection);
+        }).catch(function(e) {
+            console.warn('[n0body] reflection failed:', e.message || e);
+        });
     };
 
     // ========== PHRASE LEARNING ==========
@@ -3190,6 +3337,15 @@
                         throw new Error('Invalid JSON from LLM');
                     }
 
+                    // Score the previous decision before storing the new one
+                    var prevReward = null;
+                    if (this.sessionMemory.length > 0) {
+                        var recentActions = self.shortTermMemory.getRecent(10);
+                        prevReward = evaluateReward(recentActions, context.currentState, self.knowledge.rewardModel);
+                        // Attach reward to previous decision
+                        this.sessionMemory[this.sessionMemory.length - 1].outcomeReward = prevReward;
+                    }
+
                     // Store decision in session memory
                     this.sessionMemory.push({
                         timestamp: Date.now(),
@@ -3200,7 +3356,8 @@
                         decision: {
                             monologue: content.internal_monologue,
                             directives: content.directives
-                        }
+                        },
+                        outcomeReward: null // will be scored at next consult
                     });
                     // Keep only last 10 decisions
                     if (this.sessionMemory.length > 10) {
@@ -3458,6 +3615,36 @@
                     prompt += '\n\n---\n\n';
                 }
 
+                // Add best decisions as few-shot examples (what worked before)
+                var bestDecisions = self.knowledge.bestDecisions;
+                if (bestDecisions && bestDecisions.length > 0) {
+                    prompt += 'Your best decisions from past sessions (these WORKED — use them as inspiration):\n';
+                    bestDecisions.slice(0, 5).forEach(function(d) {
+                        prompt += '- ' + d.state + '/' + d.mood + ' [★★ ' + d.reward.toFixed(1) + ']: "' + d.monologue + '"\n';
+                    });
+                    prompt += '\n';
+                }
+
+                // Add reflections from recent sessions (your own self-assessment)
+                var reflections = self.knowledge.reflections;
+                if (reflections && reflections.length > 0) {
+                    prompt += 'Your reflections from recent sessions:\n';
+                    reflections.slice(-3).forEach(function(r) {
+                        prompt += '- (score ' + r.sessionReward.toFixed(1) + '): ' + r.reflection + '\n';
+                    });
+                    prompt += '\n';
+                }
+
+                // Add evolved guidelines (SCOPE-inspired: self-discovered principles)
+                var guidelines = self.knowledge.evolvedGuidelines;
+                if (guidelines && guidelines.length > 0) {
+                    prompt += 'YOUR EVOLVED GUIDELINES (principles you discovered — follow these):\n';
+                    guidelines.forEach(function(g) {
+                        prompt += '- ' + g + '\n';
+                    });
+                    prompt += '\n';
+                }
+
                 // Add saved patterns
                 var patterns = self.director.directives.listPatterns();
                 if (patterns.length > 0) {
@@ -3479,14 +3666,22 @@
                 prompt += 'Current state:\n' + JSON.stringify(context, null, 2);
 
                 if (this.sessionMemory.length > 0) {
-                    prompt += '\n\nThis session so far:\n';
+                    prompt += '\n\nThis session so far (with outcome scores — learn from what worked):\n';
                     this.sessionMemory.forEach(function(mem) {
                         var mins = Math.floor(mem.sessionTime / 60);
                         var secs = String(Math.floor(mem.sessionTime % 60)).padStart(2, '0');
                         prompt += '\n[' + mins + ':' + secs + '] ';
-                        prompt += mem.state + '/' + mem.mood + ' → ';
-                        prompt += '"' + (mem.decision.monologue || '').substring(0, 80) + '"';
+                        prompt += mem.state + '/' + mem.mood;
+                        // Show reward outcome if available
+                        if (mem.outcomeReward !== null && mem.outcomeReward !== undefined) {
+                            var reward = mem.outcomeReward;
+                            var emoji = reward >= 1.5 ? ' ★★' : reward >= 0.5 ? ' ★' : reward <= -0.3 ? ' ✗' : '';
+                            prompt += ' [score: ' + reward.toFixed(1) + emoji + ']';
+                        }
+                        prompt += ' → "' + (mem.decision.monologue || '').substring(0, 80) + '"';
                     });
+                    prompt += '\n\nDecisions with ★ worked well — lean into that direction.';
+                    prompt += '\nDecisions with ✗ didn\'t work — try something different.';
                 }
 
                 prompt += '\n\nWhat\'s your next move?';
