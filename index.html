@@ -1991,15 +1991,23 @@
         this._currentPhrase = null;
         this._phraseRepeats = 0;
 
-        // In breakdown: stop sequencer — melody is the protagonist
+        // In breakdown: strip drums to a minimal anchor — synth is the protagonist
+        // but rhythm never fully disappears (the kick gives pulse)
         if (newState === 'breakdown') {
-            if (MK1.sequencer.isPlaying()) MK1.sequencer.stop();
+            // Clear everything first
             for (var t = 1; t <= 8; t++) {
                 for (var s = 1; s <= 16; s++) {
                     MK1.sequencer.setStep(t, s, false);
                 }
             }
-            console.log('n0body: breakdown — drums out, synth takes over');
+            // Keep a minimal kick as anchor — drums are the skeleton, always present
+            var kickPattern = DRUM_PATTERNS['kick_pulse'] || DRUM_PATTERNS['kick_absent'];
+            if (kickPattern) {
+                for (var ks = 0; ks < 16; ks++) {
+                    MK1.sequencer.setStep(1, ks + 1, kickPattern[ks] === 1);
+                }
+            }
+            console.log('n0body: breakdown — minimal kick anchor, synth takes over');
         }
 
         // Gradual layer introduction when building up from sparse state
@@ -2409,9 +2417,13 @@
     };
 
     N0body.prototype._maybeModifySequencer = function() {
-        // Throttle: minimum 2s between sequencer changes (patterns are units, not steps)
+        // Drums are the foundation — grooves change slowly (every 8-16 bars)
+        // Synth phrases change on top, rhythm stays stable underneath
         var now = Date.now();
-        if (this._lastSeqTime && now - this._lastSeqTime < 2000) return;
+        var beatMs = 60000 / (this.currentBPM || 120);
+        var barMs = beatMs * 4;
+        var minInterval = barMs * randomFrom([8, 8, 12, 16]); // 8-16 bars
+        if (this._lastSeqTime && now - this._lastSeqTime < minInterval) return;
 
         var stateConf = this.stateConfig[this.currentState];
         if (!stateConf.sequencer.active) return;
