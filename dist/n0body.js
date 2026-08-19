@@ -485,49 +485,66 @@
     };
 
     // ========== DRUM PATTERN TEMPLATES ==========
-    // Patterns as units — not random steps. 1 = hit, 0 = rest. 16 steps.
+    // Patterns as units. 1 = hit, 0 = rest. 16 steps.
+    // Hybrid palette: Burial-style broken + DJ-structural + Arca-asymmetric
     var DRUM_PATTERNS = {
-        // kick patterns
-        kick_four: [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],
-        kick_minimal: [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-        kick_syncopated: [1,0,0,1,0,0,1,0,0,0,1,0,0,0,0,0],
-        kick_broken: [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],
-        // snare patterns
-        snare_backbeat: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-        snare_offbeat: [0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0],
-        snare_sparse: [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
-        // hihat patterns
-        hat_eighth: [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],
-        hat_sixteenth: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-        hat_offbeat: [0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0],
-        hat_sparse: [0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0],
-        // perc/rim accents
-        perc_accent: [0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0],
-        rim_ghost: [0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],
+        // kick — from structural to broken to Burial-erratic
+        kick_pulse:     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],  // single anchor
+        kick_minimal:   [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],  // half-bar pulse
+        kick_four:      [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],  // structural
+        kick_broken:    [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],  // breakbeat
+        kick_burial:    [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0],  // off-grid, handmade
+        kick_stutter:   [1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0],  // double hit + space
+        kick_absent:    [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],  // almost not there
+        // snare/clap — from ghost to rupture
+        snare_ghost:    [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0],  // barely there
+        snare_backbeat: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],  // structural
+        snare_offbeat:  [0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0],  // displaced
+        snare_erratic:  [0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0],  // asymmetric
+        // hihat — from texture to rhythm
+        hat_sparse:     [0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0],  // breathing
+        hat_offbeat:    [0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0],  // UK garage
+        hat_shuffle:    [1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,0],  // triplet feel
+        hat_texture:    [0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0],  // Burial crackle rhythm
+        hat_eighth:     [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],  // driving
+        // percussion — texture and accident
+        perc_accident:  [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],  // a single event
+        perc_scatter:   [0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0],  // irregular
+        rim_ghost:      [0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],  // subtle
+        rim_vinyl:      [0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],  // crackle-like
         // empty
-        silent: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        silent:         [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     };
 
-    // Pattern sets by energy level — complete groove presets
+    // Groove presets — hybrid palette
+    // Each state has textural/experimental AND structural options
+    // n0body learns which ones work for each mood
     var GROOVE_PRESETS = {
         intro: [
-            { 1: 'kick_minimal', 3: 'silent', 6: 'silent' },
+            { 1: 'kick_pulse' },                                              // single anchor
+            { 1: 'kick_absent', 8: 'rim_vinyl' },                            // barely present
+            { 3: 'hat_texture' },                                             // texture only, no kick
         ],
         buildup: [
-            { 1: 'kick_four', 2: 'snare_sparse', 3: 'hat_offbeat' },
-            { 1: 'kick_syncopated', 2: 'snare_backbeat', 3: 'hat_sparse', 8: 'rim_ghost' },
+            { 1: 'kick_minimal', 3: 'hat_sparse' },                          // space-first
+            { 1: 'kick_burial', 3: 'hat_offbeat', 8: 'rim_ghost' },          // Burial feel
+            { 1: 'kick_four', 2: 'snare_ghost', 3: 'hat_offbeat' },          // structural build
+            { 1: 'kick_broken', 3: 'hat_shuffle' },                          // breakbeat build
         ],
         peak: [
-            { 1: 'kick_four', 2: 'snare_backbeat', 3: 'hat_eighth', 6: 'perc_accent' },
-            { 1: 'kick_broken', 2: 'snare_offbeat', 3: 'hat_sixteenth', 8: 'rim_ghost' },
-            { 1: 'kick_syncopated', 2: 'snare_backbeat', 3: 'hat_eighth', 6: 'perc_accent', 8: 'rim_ghost' },
+            { 1: 'kick_four', 2: 'snare_backbeat', 3: 'hat_eighth' },        // full structural
+            { 1: 'kick_broken', 2: 'snare_erratic', 3: 'hat_shuffle', 6: 'perc_scatter' },  // Burial peak
+            { 1: 'kick_burial', 2: 'snare_offbeat', 3: 'hat_texture', 8: 'rim_vinyl' },     // textural peak
+            { 1: 'kick_stutter', 2: 'snare_backbeat', 3: 'hat_offbeat', 6: 'perc_accident' }, // rupture-ready
         ],
         breakdown: [
-            { 1: 'kick_minimal', 2: 'silent', 3: 'hat_sparse' },
-            { 1: 'kick_minimal', 6: 'perc_accent' },
+            { 1: 'kick_absent', 3: 'hat_texture' },                          // almost silence
+            { 1: 'kick_pulse', 6: 'perc_accident' },                         // single events
+            { 3: 'hat_sparse', 8: 'rim_ghost' },                             // no kick at all
         ],
         outro: [
-            { 1: 'kick_minimal', 3: 'silent' },
+            { 1: 'kick_absent' },                                            // dissolving
+            { 8: 'rim_vinyl' },                                               // texture only
         ],
     };
 
@@ -2001,12 +2018,18 @@
 
         var gridSpacing = beatMs * randomFrom(subdivisions);
 
-        // Kaytranada-style offbeat feel: shift synth notes to land BETWEEN kicks
-        // Kick lands on beats 1, 2, 3, 4 (every beatMs). Synth lands on the "and"
-        // (half a beat offset). Creates the groove/pump feeling without a compressor.
-        // Only in buildup/peak where kick pattern is running.
+        // Synth-to-kick relationship — not always the same:
+        // 50% offbeat (groove, Kaytranada) — synth lands between kicks
+        // 30% on-beat (weight, Massive Attack) — synth lands with kicks
+        // 20% erratic (Burial) — random offset, handmade feel
         if (this.currentState === 'buildup' || this.currentState === 'peak') {
-            gridSpacing += beatMs * 0.5; // offset half a beat from the grid
+            var feel = Math.random();
+            if (feel < 0.5) {
+                gridSpacing += beatMs * 0.5;         // offbeat — groove
+            } else if (feel >= 0.8) {
+                gridSpacing += beatMs * randomBetween(0.15, 0.85); // erratic — Burial
+            }
+            // else: on-beat — no offset, synth lands with kick
         }
 
         var humanized = gridSpacing + randomBetween(-this.config.humanize.timing, this.config.humanize.timing);
@@ -2215,38 +2238,83 @@
 
     // ========== PRODUCTION TECHNIQUES ==========
 
-    // Filter sweep as transition — LP filter closes then opens over 8 bars
-    // Like Chemical Brothers / Jamie xx: filter is the transition, not a cut
+    // Transition technique — not always the same. Three modes:
+    // 1. Filter sweep (DJ/structural) — LP closes then opens over 4-8 bars
+    // 2. Rupture (Arca) — abrupt cut, immediate new state, no smoothing
+    // 3. Space shift (Burial) — reverb swells, filter stays, space transitions
     N0body.prototype._filterSweepTransition = function(newState) {
         if (this._filterSweepTimer) clearInterval(this._filterSweepTimer);
 
         var self = this;
         var beatMs = 60000 / (this.currentBPM || 120);
         var barMs = beatMs * 4;
-        var sweepDuration = barMs * 8; // 8 bars total
-        var halfDuration = sweepDuration / 2;
 
+        // Choose transition mode — weighted by mood
+        var mode;
+        if (this.currentMood === 'dark') {
+            mode = randomFrom(['sweep', 'rupture', 'rupture', 'space', 'space']);  // dark: more rupture/space
+        } else if (this.currentMood === 'bright') {
+            mode = randomFrom(['sweep', 'sweep', 'sweep', 'rupture', 'space']);   // bright: more sweep
+        } else {
+            mode = randomFrom(['sweep', 'rupture', 'space']);                      // neutral: equal
+        }
+
+        if (mode === 'rupture') {
+            // Arca-style: immediate cut to new FX, no smoothing
+            this._applyAllFx();
+            console.log('n0body: transition — rupture');
+            return;
+        }
+
+        if (mode === 'space') {
+            // Burial-style: reverb swells over 4 bars, then new state FX apply
+            var reverbStart = this.currentFx.reverb;
+            var steps = 16;
+            var stepMs = (barMs * 4) / steps;
+            var currentStep = 0;
+
+            this._filterSweepTimer = setInterval(function() {
+                currentStep++;
+                var progress = currentStep / steps;
+                // Reverb rises to 0.85, then settles to target
+                var reverbValue;
+                if (progress <= 0.6) {
+                    reverbValue = reverbStart + (0.85 - reverbStart) * (progress / 0.6);
+                } else {
+                    var targetReverb = self._chooseFxValue('reverb');
+                    reverbValue = 0.85 + (targetReverb - 0.85) * ((progress - 0.6) / 0.4);
+                }
+                MK1.fx.setReverb(reverbValue);
+                self.currentFx.reverb = reverbValue;
+
+                if (currentStep >= steps) {
+                    clearInterval(self._filterSweepTimer);
+                    self._filterSweepTimer = null;
+                    self._applyAllFx();
+                }
+            }, stepMs);
+            console.log('n0body: transition — space shift');
+            return;
+        }
+
+        // Default: filter sweep over 4-8 bars
+        var sweepBars = randomFrom([4, 6, 8]);
+        var sweepDuration = barMs * sweepBars;
         var startFilter = this.currentFx.filter;
         var targetFilter = this._chooseFxValue('filter');
-        var steps = 32; // smooth enough
+        var steps = 24;
         var stepMs = sweepDuration / steps;
         var currentStep = 0;
 
-        // Phase 1: close filter down (4 bars)
-        // Phase 2: open filter to new target (4 bars)
         this._filterSweepTimer = setInterval(function() {
             currentStep++;
             var progress = currentStep / steps;
             var filterValue;
 
             if (progress <= 0.5) {
-                // Closing down: start → 0.1
-                var closeProgress = progress * 2;
-                filterValue = startFilter + (0.1 - startFilter) * closeProgress;
+                filterValue = startFilter + (0.1 - startFilter) * (progress * 2);
             } else {
-                // Opening up: 0.1 → target
-                var openProgress = (progress - 0.5) * 2;
-                filterValue = 0.1 + (targetFilter - 0.1) * openProgress;
+                filterValue = 0.1 + (targetFilter - 0.1) * ((progress - 0.5) * 2);
             }
 
             self.currentFx.filter = filterValue;
@@ -2255,10 +2323,10 @@
             if (currentStep >= steps) {
                 clearInterval(self._filterSweepTimer);
                 self._filterSweepTimer = null;
-                // Now apply the rest of the FX for the new state
                 self._applyAllFx();
             }
         }, stepMs);
+        console.log('n0body: transition — filter sweep (' + sweepBars + ' bars)');
     };
 
     // Gradual layer introduction — each element enters 4-8 bars apart
