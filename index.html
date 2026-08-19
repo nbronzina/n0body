@@ -805,7 +805,7 @@
                 padWeights: { 1: 0.02, 2: 0, 3: 0.01, 4: 0, 5: 0, 6: 0.01, 7: 0, 8: 0.01 }
             },
             synth: { probability: 0.20, noteDuration: { min: 1.5, max: 4 } },
-            sequencer: { active: false },
+            sequencer: { active: true, density: 0.08, tracksActive: [1, 8] },
             fx: { reverb: { min: 0.3, max: 0.5 }, delay: { min: 0, max: 0.2 }, filter: { min: 0.4, max: 0.6 }, distortion: { min: 0, max: 0.05 }, chorus: { min: 0, max: 0.15 }, crush: { min: 0, max: 0 } },
         },
         buildup: {
@@ -2210,8 +2210,17 @@
         // Like a real track: ~50% of the time has melody, ~50% is drums only
         switch (this.currentState) {
             case 'intro':
-                // No synth in intro — drums establish the groove first
-                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * 4);
+                // Intro: long textural notes, wide spacing — Burial pads, not silence
+                if (Math.random() < 0.20) {
+                    var introNote = this._chooseSynthNote();
+                    var introDuration = randomBetween(2, 5);
+                    MK1.synth.play(introNote, introDuration);
+                    this.stats.synthNotesPlayed++;
+                    this._learn({ type: 'synth', note: introNote });
+                    this._trackEnergy('synth');
+                    this._trackAction({ type: 'synth', note: introNote, duration: introDuration });
+                }
+                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * randomFrom([2, 2, 4, 4, 8]));
                 return;
             case 'outro':
                 // Outro: one long sustained note every 4-8 bars, fading
