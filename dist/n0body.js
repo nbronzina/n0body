@@ -2212,17 +2212,16 @@
         // Like a real track: ~50% of the time has melody, ~50% is drums only
         switch (this.currentState) {
             case 'intro':
-                // Intro: long textural notes, wide spacing — Burial pads, not silence
-                if (Math.random() < 0.20) {
-                    var introNote = this._chooseSynthNote();
-                    var introDuration = randomBetween(2, 5);
-                    MK1.synth.play(introNote, introDuration);
-                    this.stats.synthNotesPlayed++;
-                    this._learn({ type: 'synth', note: introNote });
-                    this._trackEnergy('synth');
-                    this._trackAction({ type: 'synth', note: introNote, duration: introDuration });
-                }
-                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * randomFrom([2, 2, 4, 4, 8]));
+                // Intro: long textural notes — always play, spacing provides the sparseness
+                var introNote = this._chooseSynthNote();
+                var introDuration = randomBetween(2, 5);
+                MK1.synth.play(introNote, introDuration);
+                this.stats.synthNotesPlayed++;
+                this._learn({ type: 'synth', note: introNote });
+                this._trackEnergy('synth');
+                this._trackAction({ type: 'synth', note: introNote, duration: introDuration });
+                // Space between notes provides the sparseness, not probability
+                this.synthTimer = setTimeout(function() { self._scheduleSynth(); }, barMs * randomFrom([2, 3, 4, 4]));
                 return;
             case 'outro':
                 // Outro: one long sustained note every 4-8 bars, fading
