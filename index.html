@@ -988,20 +988,16 @@
         if (this.isPlaying) return;
         if (typeof MK1 === 'undefined') { console.error('n0body: MK1 not found'); return; }
 
-        // Initialize mk-1 audio system and resume AudioContext
-        // mk-1's AudioContext may not exist yet — calling synth.play() triggers
-        // initSystem() which creates it. Then resume() unlocks it.
-        // This sequence MUST happen inside a real user gesture (the ▸ click).
-        try {
-            // Force mk-1 to initialize its audio system by playing a silent note
-            MK1.synth.play('C3', 0.01);
-            MK1.synth.stop();
-        } catch(e) {}
-        // Now the AudioContext exists — resume it
+        // Initialize mk-1 audio system — MUST happen in user gesture context.
+        // mk-1's initSystem() creates the AudioContext and connects the graph.
+        // We call it via MK1.utils.init(), then resume, then verify.
+        if (MK1.utils && MK1.utils.init) {
+            MK1.utils.init();
+        }
         if (MK1.utils && MK1.utils.resume) {
             MK1.utils.resume();
         }
-        // Hit a drum to doubly ensure audio is flowing
+        // Immediate audible feedback — confirms audio is working
         MK1.drums.hit(1);
         console.log('n0body: audio system initialized and resumed');
 
@@ -1540,21 +1536,25 @@
         this.currentState = 'intro';
         this.stateStartTime = Date.now();
 
-        // Make sound IMMEDIATELY — the session must be audible from second 1
-        // 1. Start sequencer with a groove
+        // Start sequencer first, then program the groove after a delay
+        // mk-1's toggleSequencer may need 100-200ms to initialize if audioContext
+        // wasn't ready. We start it, wait, then program steps.
+        var self = this;
         MK1.sequencer.start();
-        this._applyGroovePreset();
-        this._lastSeqTime = Date.now();
 
-        // 2. Hit a drum right now — instant feedback that something is alive
-        MK1.drums.hit(1); // kick
-
-        // 3. Play an opening synth note
+        // Play an opening synth note immediately
         var openingNote = this._chooseSynthNote();
         MK1.synth.play(openingNote, randomBetween(2, 4));
         this.stats.synthNotesPlayed++;
 
-        console.log('n0body: session started — groove + kick + synth');
+        // Program groove after sequencer has had time to initialize
+        setTimeout(function() {
+            self._applyGroovePreset();
+            self._lastSeqTime = Date.now();
+            console.log('n0body: groove programmed into running sequencer');
+        }, 200);
+
+        console.log('n0body: session started');
     };
 
     N0body.prototype._chooseScale = function() {
@@ -2185,12 +2185,10 @@
         var health = MK1.utils.getHealth();
         var elapsed = Math.round((Date.now() - this.sessionStart) / 1000 / 60);
 
-        // mk-1 getHealth returns: { audioContext: 'running'|'suspended', activeSynthVoices, activeDrumVoices, micActive }
-        var ctxState = health.audioContext || 'unknown';
-        console.log('n0body: health check @' + elapsed + 'min - voices: ' + health.activeDrumVoices + 'd/' + health.activeSynthVoices + 's, ctx: ' + ctxState);
+        console.log('n0body: health check @' + elapsed + 'min - voices: ' + health.activeDrumVoices + 'd/' + health.activeSynthVoices + 's, ctx: ' + health.contextState + ', healthy: ' + health.healthy);
 
-        if (ctxState === 'suspended' || ctxState === 'not initialized') {
-            console.warn('n0body: audio context ' + ctxState + '! attempting recovery...');
+        if (!health.healthy) {
+            console.warn('n0body: audio unhealthy! attempting recovery...');
             this._attemptAudioRecovery();
         }
     };
@@ -2210,7 +2208,7 @@
             if (!MK1.utils.getHealth) return;
             var health = MK1.utils.getHealth();
 
-            if (health.audioContext !== 'running' && MK1.utils.forceCleanup) {
+            if (!health.healthy && MK1.utils.forceCleanup) {
                 console.warn('n0body: still unhealthy, forcing cleanup...');
                 MK1.utils.forceCleanup();
             }
