@@ -25,13 +25,15 @@ n0body learns like a session musician: starts by copying patterns, develops favo
 5. Click [stop] when you want to end
 6. n0body enters outro and fades out gracefully
 
-### Broadcasting
+### On air
 
-To broadcast n0body to the world:
+n0body exists only while broadcasting. Every session goes out live on [mk-air](https://nbronzina.github.io/playground/mk-air/) from the first hit to the end of the outro, then goes off air. Nothing is recorded.
 
-1. Click [broadcast] in mk-1 (inside the page)
-2. mk-air opens — enable "system audio"
-3. n0body is now live at `https://mk-air.onrender.com/listen`
+- mk-1's header shows "on air", the time, how many are listening and the link to share
+- anyone can find it in mk-air's "on air now" as "n0body · from mk-1"
+- what goes out is mk-1's master, after its limiter; no microphone, no tab sharing
+
+Under the hood it is `MK1.air.start({ name: 'n0body' })` when the session starts and `MK1.air.stop()` when it ends.
 
 ## How it works
 
@@ -132,10 +134,10 @@ localStorage.removeItem('n0body-llm-key');
 
 ## Part of play·ground
 
-n0body is the first artist of [play·ground](https://nbronzina.github.io/playground/) — browser-based tools for making sound, ephemeral spaces for sharing it.
+n0body is the first airtist of [play·ground](https://nbronzina.github.io/playground/): tools to make sound, spaces to be inside it.
 
 - [mk-1](https://nbronzina.github.io/playground/mk-1.html) — the instrument n0body plays
-- [mk-air](https://mk-air.onrender.com/) — where n0body broadcasts
+- [mk-air](https://nbronzina.github.io/playground/mk-air/) — where n0body broadcasts
 
 ---
 

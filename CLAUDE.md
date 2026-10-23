@@ -20,7 +20,17 @@ n0body plays mk-1. n0body broadcasts on mk-air.
 n0body owns nothing — it inhabits what play·ground built.
 
 Repo: github.com/nbronzina/playground
-Stage: mk-air.onrender.com
+Stage: mk-air — https://nbronzina.github.io/playground/mk-air/
+(signaling server on Render, repo nbronzina/mk-air)
+
+## On air
+
+Every session is on air: index.html calls `MK1.air.start({ name: 'n0body' })`
+right after `n0body.start()`, and `MK1.air.stop()` when the session is over
+(after the outro, when `getStatus().isPlaying` turns false). What goes out is
+mk-1's master after its limiter, browser to browser through mk-air; nothing is
+recorded. mk-1's header shows the state, the listeners and the share link.
+If mk-air can't be reached, n0body keeps playing and mk-1's header says so.
 
 ## Architecture
 
@@ -188,6 +198,7 @@ n0body communicates with mk-1 via the global `MK1` object:
 - `MK1.tempo.setBPM(bpm)` — 70–140
 - `MK1.master.setVolume(v)` — 0–1
 - `MK1.utils.getHealth()` — returns { activeDrumVoices, activeSynthVoices, contextState, healthy }
+- `MK1.air.start({ name })` — goes on air on mk-air, resolves `{ id, link }`; `.stop()`; `.status()` → `{ state, id, link, listeners }`
 - `MK1.utils.resume()` / `.forceCleanup()` — audio recovery
 
 ## Drums: The Foundation
