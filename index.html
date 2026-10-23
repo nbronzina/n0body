@@ -4366,6 +4366,26 @@
             errorText.innerHTML = message;
         }
 
+        // ========== ON AIR ==========
+        // n0body exists only while broadcasting: a session is on mk-air from its first hit to the end of the outro.
+        // mk-1's header shows the state and the link to listen
+
+        let onAir = false;
+
+        function goOnAir() {
+            const mk1 = iframe.contentWindow.MK1;
+            if (!mk1 || !mk1.air) return;
+            onAir = true;
+            mk1.air.start({ name: 'n0body' }).catch(() => { onAir = false; });
+        }
+
+        function goOffAir() {
+            if (!onAir) return;
+            onAir = false;
+            const mk1 = iframe.contentWindow.MK1;
+            if (mk1 && mk1.air) mk1.air.stop();
+        }
+
         // ========== CONTROLS ==========
 
         startBtn.onclick = () => {
@@ -4380,6 +4400,7 @@
             } catch (e) {}
 
             n0bodyRef.start();
+            goOnAir();
             startBtn.disabled = true;
             stopBtn.disabled = false;
             n0bodyName.classList.add('n0body-bar__name--playing');
@@ -4453,6 +4474,7 @@
                 startBtn.disabled = true;
                 stopBtn.disabled = status.isEnding;
             } else {
+                goOffAir();
                 statusText.textContent = '';
                 statusText.classList.remove('n0body-bar__status--active');
                 startBtn.disabled = false;
