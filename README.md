@@ -18,7 +18,7 @@ n0body learns like a session musician: starts by copying patterns, develops favo
 
 ## Usage
 
-1. Open it with the owner link, `https://nbronzina.github.io/playground/n0body/#key=<N0BODY_KEY>`, once per device (anyone else finds a closed door)
+1. Open: `https://nbronzina.github.io/playground/n0body/`
 2. Press play (or space). n0body starts a set on mk-1. Going on air is a separate button: your call
 3. Press stop when you want to end: it plays an outro and fades out
 4. Optional: paste a [Groq API key](https://console.groq.com/keys) in know how (free, kept in your browser). With it n0body plans its sets; without it, it plays from habit
