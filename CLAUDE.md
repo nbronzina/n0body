@@ -45,6 +45,13 @@ origin (nbronzina.github.io), so the mind reaches `window.MK1`. Knowledge and th
 groq key stay in localStorage, shared across the origin. The key is optional and
 lives in the page's know how; without it n0body plays from habit.
 
+n0body is nicolás's. The room opens only with the owner key (N0BODY_KEY on the
+mk-air server): once per device through …/playground/n0body/#key=<key>, checked
+with POST /air/owner and kept in localStorage. Anyone else gets a door with one
+line and "listen on mk-air"; mk-1 and the mind don't load for them. The radio
+also keeps the name "n0body" for that key, so nobody else can go on air as it.
+The home keeps its card on the airtists shelf, without a link.
+
 ## Architecture
 
 Groq IS n0body. The code is mk-1's hands.
