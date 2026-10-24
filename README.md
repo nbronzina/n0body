@@ -18,18 +18,18 @@ n0body learns like a session musician: starts by copying patterns, develops favo
 
 ## Usage
 
-1. Open: `https://nbronzina.github.io/n0body/`
-2. First time: enter a [Groq API key](https://console.groq.com/keys) (free, saved to device)
-3. Click [start]
-4. n0body plays
-5. Click [stop] when you want to end
-6. n0body enters outro and fades out gracefully
+1. Open: `https://nbronzina.github.io/playground/n0body/`
+2. Press play (or space). n0body starts a set on mk-1 and goes on air
+3. Press stop when you want to end: it plays an outro and fades out
+4. Optional: paste a [Groq API key](https://console.groq.com/keys) in know how (free, kept in your browser). With it n0body plans its sets; without it, it plays from habit
+
+The page lives in the [playground](https://github.com/nbronzina/playground) repo (`n0body/`). This repo is n0body's mind (`dist/n0body.js`) and its docs; `https://nbronzina.github.io/n0body/` redirects to the page.
 
 ### On air
 
 n0body exists only while broadcasting. Every session goes out live on [mk-air](https://nbronzina.github.io/playground/mk-air/) from the first hit to the end of the outro, then goes off air. Nothing is recorded.
 
-- mk-1's header shows "on air", the time, how many are listening and the link to share
+- the page's header shows "on air", the time, how many are listening and the link to share
 - anyone can find it in mk-air's "on air now" as "n0body · from mk-1"
 - what goes out is mk-1's master, after its limiter; no microphone, no tab sharing
 
@@ -104,10 +104,10 @@ Every 3 minutes, an LLM (Llama 3.3 70B via Groq) evaluates the session and creat
 
 | Command | Action |
 |---------|--------|
-| [start] | Begin session |
-| [stop] | Enter outro and end |
+| play (or space) | Begin a set and go on air |
+| stop (or space) | Enter outro, end, go off air |
 
-From console:
+From the console, inside mk-1's frame:
 ```javascript
 n0body.start()
 n0body.stop()

@@ -6,7 +6,9 @@ n0body is the first airtist of play·ground.
 An autonomous agent that learns and plays mk-1.
 Broadcasts live on mk-air. Disappears when the session ends.
 
-Live: https://nbronzina.github.io/n0body/
+Live: https://nbronzina.github.io/playground/n0body/
+(the page lives in the playground repo, n0body/; this repo is n0body's mind and its docs.
+https://nbronzina.github.io/n0body/ redirects there)
 
 ## Philosophy
 
@@ -25,12 +27,22 @@ Stage: mk-air — https://nbronzina.github.io/playground/mk-air/
 
 ## On air
 
-Every session is on air: index.html calls `MK1.air.start({ name: 'n0body' })`
-right after `n0body.start()`, and `MK1.air.stop()` when the session is over
-(after the outro, when `getStatus().isPlaying` turns false). What goes out is
-mk-1's master after its limiter, browser to browser through mk-air; nothing is
-recorded. mk-1's header shows the state, the listeners and the share link.
-If mk-air can't be reached, n0body keeps playing and mk-1's header says so.
+Every session is on air: the page (playground/n0body/js/n0body.js) calls
+`MK1.air.start({ name: 'n0body' })` right after `n0body.start()`, and
+`MK1.air.stop()` when the session is over (after the outro, when
+`getStatus().isPlaying` turns false). What goes out is mk-1's master after its
+limiter, browser to browser through mk-air (relayed by the radio when a
+listener's network needs it); nothing is recorded. The page's header shows the
+lamp, the time, the listeners and the share link. If mk-air can't be reached,
+n0body keeps playing and the header says so.
+
+## The page
+
+playground/n0body/ frames mk-1 with `mk-1.html?embed` (console only) and loads
+this repo's dist/n0body.js into that frame from /n0body/dist/n0body.js: same
+origin (nbronzina.github.io), so the mind reaches `window.MK1`. Knowledge and the
+groq key stay in localStorage, shared across the origin. The key is optional and
+lives in the page's know how; without it n0body plays from habit.
 
 ## Architecture
 
@@ -74,7 +86,7 @@ with a mind (Groq) and muscle memory (code).
 
 n0body/
 ├── CLAUDE.md
-├── index.html              — UI + embedded brain (live runtime)
+├── index.html              — redirect to https://nbronzina.github.io/playground/n0body/
 ├── package.json
 ├── README.md
 ├── IDENTITY.md             — who n0body is, what it plays toward
@@ -84,17 +96,16 @@ n0body/
 ├── tried-rejected.json     — patterns that didn't work (schema)
 ├── decision-log.jsonl      — append-only decision record (schema)
 ├── dist/
-│   └── n0body.js           — source of truth (manual bundle)
+│   └── n0body.js           — the mind: source of truth, loaded by the page in playground
 └── src/
     ├── session-supervisor.js — deterministic session lifecycle manager
     └── (legacy files)       — see src/README.md
 
 ## Build
 
-dist/n0body.js is the single source of truth.
-index.html embeds dist/ inside a template literal (backslashes and
-backticks escaped). Changes go to dist/ first, then re-embed in
-index.html using the build script in scratchpad.
+dist/n0body.js is the single source of truth, and what runs: the page in
+playground loads it as is. No embedding, no build step; a change here is live
+when this repo's Pages deploys.
 src/ files (except session-supervisor.js) are legacy — do not edit.
 
 ## State Machine (musical states)
@@ -133,7 +144,7 @@ TERMINATED → IDLE (ready for next session)
 3. Repetition detection: 4/5 recent Groq decisions >80% Jaccard similarity
 4. Entropy degradation: Shannon entropy <0.3 bits (stuck loop) or monotonically rising (noise)
 5. Render capacity >95% for >10 seconds → EMERGENCY_STOP
-6. Manual stop: user presses [stop]
+6. Manual stop: user presses stop (or space) on the page
 
 No hard time limit — sessions run as long as they're healthy.
 
