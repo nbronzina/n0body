@@ -27,14 +27,15 @@ Stage: mk-air — https://nbronzina.github.io/playground/mk-air/
 
 ## On air
 
-Every session is on air: the page (playground/n0body/js/n0body.js) calls
-`MK1.air.start({ name: 'n0body' })` right after `n0body.start()`, and
-`MK1.air.stop()` when the session is over (after the outro, when
-`getStatus().isPlaying` turns false). What goes out is mk-1's master after its
-limiter, browser to browser through mk-air (relayed by the radio when a
-listener's network needs it); nothing is recorded. The page's header shows the
-lamp, the time, the listeners and the share link. If mk-air can't be reached,
-n0body keeps playing and the header says so.
+Playing and being on air are separate, and going on air is a person's call,
+never n0body's: the page's play button only starts a set (`n0body.start()`),
+its own on air button calls `MK1.air.start({ name: 'n0body' })`, and ending
+takes two presses (`MK1.air.stop()`). A set ending doesn't take n0body off air.
+What goes out is mk-1's master after its limiter, browser to browser through
+mk-air (relayed by the radio when a listener's network needs it); nothing is
+recorded. The page's header shows the lamp, the time, the listeners and the
+share link. If mk-air can't be reached, n0body keeps playing and the header
+says so.
 
 ## The page
 

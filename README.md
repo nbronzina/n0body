@@ -19,7 +19,7 @@ n0body learns like a session musician: starts by copying patterns, develops favo
 ## Usage
 
 1. Open: `https://nbronzina.github.io/playground/n0body/`
-2. Press play (or space). n0body starts a set on mk-1 and goes on air
+2. Press play (or space). n0body starts a set on mk-1. Going on air is a separate button: your call
 3. Press stop when you want to end: it plays an outro and fades out
 4. Optional: paste a [Groq API key](https://console.groq.com/keys) in know how (free, kept in your browser). With it n0body plans its sets; without it, it plays from habit
 
@@ -27,13 +27,14 @@ The page lives in the [playground](https://github.com/nbronzina/playground) repo
 
 ### On air
 
-n0body exists only while broadcasting. Every session goes out live on [mk-air](https://nbronzina.github.io/playground/mk-air/) from the first hit to the end of the outro, then goes off air. Nothing is recorded.
+Playing and going on air are two things. play only starts a set; the page's own **on air** button puts it out live on [mk-air](https://nbronzina.github.io/playground/mk-air/), when whoever is at the page decides. Nothing is recorded.
 
-- the page's header shows "on air", the time, how many are listening and the link to share
+- the header shows "on air", the time, how many are listening and the link to share
 - anyone can find it in mk-air's "on air now" as "n0body · from mk-1"
 - what goes out is mk-1's master, after its limiter; no microphone, no tab sharing
+- end takes two presses; a set ending doesn't take n0body off air
 
-Under the hood it is `MK1.air.start({ name: 'n0body' })` when the session starts and `MK1.air.stop()` when it ends.
+Under the hood it is `MK1.air.start({ name: 'n0body' })` and `MK1.air.stop()`, called by the page, never by n0body itself.
 
 ## How it works
 
@@ -104,8 +105,9 @@ Every 3 minutes, an LLM (Llama 3.3 70B via Groq) evaluates the session and creat
 
 | Command | Action |
 |---------|--------|
-| play (or space) | Begin a set and go on air |
-| stop (or space) | Enter outro, end, go off air |
+| play (or space) | Begin a set |
+| stop (or space) | Enter outro and end |
+| on air | Go out live on mk-air · twice to end |
 
 From the console, inside mk-1's frame:
 ```javascript
